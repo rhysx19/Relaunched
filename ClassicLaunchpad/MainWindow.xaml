@@ -150,8 +150,10 @@
 
         <Grid.RowDefinitions>
             <RowDefinition Height="60"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
         <!-- Main background contents container -->
-        <Grid x:Name="BackgroundGrid" Grid.RowSpan="5" RenderTransformOrigin="0.5,0.5" Opacity="1.0">
+        <Grid x:Name="BackgroundGrid" Grid.RowSpan="2" RenderTransformOrigin="0.5,0.5" Opacity="1.0">
             <Grid.RenderTransform>
                 <ScaleTransform x:Name="BackgroundScale" ScaleX="1.0" ScaleY="1.0"/>
             </Grid.RenderTransform>
@@ -193,8 +195,8 @@
                 <Grid>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="Auto"/>
-                        <Grid.ColumnDefinition Width="*"/>
-                        <Grid.ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
 
                     <FontIcon Glyph="&#xE721;" FontSize="14" Foreground="#AAFFFFFF" Margin="12,0,8,0"/>
@@ -278,8 +280,8 @@
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto"/>
-                    <Grid.ColumnDefinition Width="*"/>
-                    <Grid.ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
 
                 <Border Background="#400A84FF" CornerRadius="12" Width="50" Height="50" Margin="0,0,16,0">
