@@ -1,0 +1,14 @@
+# macOS system files
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Iconset directories
+AppIcon.iconset/
+
+# Build products
+*.app/
+Launchpad_Classic.zip
+
+# Temporary build logs and signs
+/tmp/
