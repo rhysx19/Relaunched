@@ -234,7 +234,7 @@
               Opacity="0.0"
               PointerPressed="FolderOverlay_PointerPressed">
             <Grid.Background>
-                <AcrylicBrush BackgroundSource="Backdrop" TintColor="Black" TintOpacity="0.4" FallbackColor="#99000000"/>
+                <SolidColorBrush Color="Black" Opacity="0.6"/>
             </Grid.Background>
             <Border x:Name="FolderCardBorder" AllowDrop="True"
                     DragOver="FolderCardBorder_DragOver"
