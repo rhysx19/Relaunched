@@ -1,98 +1,131 @@
-# Classic macOS Launchpad
+# Classic Launchpad
 
-A lightweight, native, and highly customizable alternative to the macOS Launchpad. Built with **SwiftUI** & **AppKit**, it delivers smooth spring animations, deep glassmorphic styling, and power-user features like spotlight calculations and system actions.
+A lightweight, native, and highly customizable application launcher overlay for **macOS** and **Windows**. It brings the clean, full-screen macOS Launchpad experience to both operating systems, complete with elegant desktop backdrop blurs, animated paging grids, glassmorphic folder overlays, power-user math calculations, and full keyboard navigation.
 
 <p align="center">
-  <img src="AppIcon.icns" width="128" height="128" alt="Launchpad Classic Icon" />
+  <img src="AppIcon.icns" width="128" height="128" alt="Classic Launchpad Icon" />
 </p>
 
 ---
 
-## Key Features
+## 💻 Platforms Supported
 
-*   🚀 **Global Keyboard Toggle & Navigation**:
-    *   Instantly toggle the Launchpad overlay using `Option + Space`.
-    *   Full keyboard control: select apps with arrow keys (showing a blue halo glow), navigate pages, and press `Enter` to launch.
-*   📱 **Premium Glassmorphic Folders & Drag-to-Remove**:
-    *   Group apps into folders with 32pt continuous rounded squircle styling and dark `hudWindow` blurs.
-    *   *Depth-of-Field Focus*: Opening a folder automatically dims, scales, and blurs background apps.
-    *   *Native Renaming*: Focus-stable AppKit `NSTextField` with inline capsule highlighting. Commits on `Enter` or click-away.
-    *   *Drag-to-Remove*: Drag any app out of the folder box onto the background backdrop to remove it.
-*   📐 **Fully Animated Grid Reflows**:
-    *   Real-time layout recalculations animate with smooth spring physics when adjusting column/row sizes or app icon dimensions.
-    *   *Responsive Scaling*: Layout automatically shrinks and scales elements to fit safely within smaller laptop viewports.
-*   🔍 **Spotlight Math & System Actions**:
-    *   Typing directly on the home screen automatically triggers search.
-    *   *Quick Calculations*: Type expressions (e.g. `2 + 2 * 3`) to instantly evaluate and press `Enter` to copy the result.
-    *   *System Controls*: Type system actions (e.g. `Lock`, `Sleep`, `Restart`, `Shutdown`) and press `Enter` to execute.
-*   ⚙️ **Integrated Settings Card**:
-    *   Adjust columns (4-10), rows (3-7), and icon sizes (60pt-120pt) in real-time.
-    *   Toggle background daemon running, Menu Bar status items, and Dock icon presence.
-*   🔒 **Dock & Hover Interception**:
-    *   Hides the macOS Dock and Menu Bar when open to block mouse hover conflicts and window click-throughs.
-    *   Asynchronously scans for new applications on launch with a shimmering loading skeleton.
+1. **macOS**: Built natively using **SwiftUI** & **AppKit** (targeting macOS 10.15+).
+2. **Windows**: Built natively using **C#**, **WinUI 3**, and the **Windows App SDK** (targeting Windows 10 & 11).
 
 ---
 
-## Getting Started
+## ✨ Features
+
+- 🚀 **Global Toggle & Keyboard Navigation**:
+  - **macOS**: Global hotkey `Option + Space` (configurable).
+  - **Windows**: Global hotkey `Alt + Space` (registered via Win32 subclasses).
+  - Full keyboard controls: navigate cells using arrow keys (with selection halos), change pages using `Page Up / Down`, and press `Enter` to open apps/folders.
+- 📱 **Premium Glassmorphic Folders & Drag-to-Remove**:
+  - Drag apps onto each other to group them into folders with mini-grid previews.
+  - Opening a folder blurs, dims, and scales down the background apps grid.
+  - Change folder titles inline—commits automatically on `Enter` or clicking away.
+  - Drag an app out of the folder box onto the blurred background backdrop to remove and reflow the layout.
+- 📐 **Responsive Paginated Grids**:
+  - Configure columns, rows, and icon dimensions in real-time.
+  - Apps animate smoothly using spring physics during layout shifts.
+  - Safe-scaling rules shrink layout dimensions on smaller viewports to prevent screen overflows.
+- 🔍 **Real-Time Search, Math Parser & System Actions**:
+  - Start typing anywhere on the screen to immediately search and filter applications.
+  - **Calculator**: Type simple mathematical expressions (e.g. `12 * (4 + 6)`) to solve instantly. Click the action card to copy the result.
+  - **System Control**: Execute commands like `Lock`, `Sleep`, `Restart`, or `Shutdown` directly from the search bar.
+- ⚙️ **Integrated Settings**:
+  - Modify rows, columns, and icon sizes instantly with changes updating in real-time.
+  - Control launch-on-boot, daemon status bar controls, and taskbar/dock presence.
+- 🔒 **Dock & Taskbar Hiding**:
+  - Hides the macOS Dock/MenuBar or Windows Taskbar (on all active screens) during visibility to prevent mouse hover conflicts.
+  - Employs fail-safe process hooks to restore system bars on focus loss or app crashes.
+
+---
+
+## 📂 Project Structure
+
+- **`ClassicLaunchpad.sln`**: The central .NET solution for Windows.
+  - **`ClassicLaunchpad`**: WinUI 3 Desktop Application handling presentation, Acrylic backdrop blurs, and global hooks.
+  - **`ClassicLaunchpad.Core`**: Shared C# library managing layout state machines, COM shortcut scanners, search engines, system commands, and local settings stores.
+  - **`ClassicLaunchpad.Tests`**: xUnit tests containing 96 headless E2E verification test cases.
+- **macOS SwiftUI Source**:
+  - **`main.swift`**: Bootstrapper handling AppKit window states, Dock promotions, and global hooks.
+  - **`AppScanner.swift`**: Scans application directories and resolves bundle icon assets.
+  - **`LaunchpadView.swift`**: SwiftUI view representing pages, drag-reordering, folders, search, and the settings card.
+  - **`build.sh`**: Codesigning wrapper to build a clean `.app` bundle from the Swift source.
+
+---
+
+## 🛠️ Getting Started (Windows - WinUI 3)
 
 ### Prerequisites
+- Windows 10 Version 1809 (Build 17763) or later.
+- [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0).
+- Windows App SDK runtime dependencies (handled automatically by MSBuild).
 
-*   A Mac running **macOS 10.15 (Catalina)** or later.
-*   Command-line tools (installed automatically with Xcode or by running `xcode-select --install`).
+### Build & Publish
+To compile a standalone, self-contained publish bundle:
+```powershell
+dotnet publish ClassicLaunchpad/ClassicLaunchpad.csproj -c Release -r win-x64 --self-contained
+```
+The compiled output is located at:
+`ClassicLaunchpad/bin/Release/net8.0-windows10.0.19041.0/win-x64/publish/ClassicLaunchpad.exe`
 
-### Build and Run
-
-1.  Clone this repository to your local drive.
-2.  Open Terminal and navigate to the project directory:
-    ```bash
-    cd MacOS_Launchpad
-    ```
-3.  Compile and code-sign the application:
-    ```bash
-    ./build.sh
-    ```
-4.  Launch the application:
-    ```bash
-    open "Launchpad Classic.app"
-    ```
+### Running the Test Suite
+The C# test suite runs headlessly and compiles on **Windows, macOS, and Linux**:
+```bash
+./run_tests.sh
+```
 
 ---
 
-## Keyboard Controls & Gestures
+## 🍎 Getting Started (macOS - SwiftUI)
 
-| Key / Gesture | Action |
-| :--- | :--- |
-| `Option + Space` | Toggle Launchpad Classic (global hotkey) |
-| `Arrow Keys` | Move blue focus border selection |
-| `Page Up / Down` | Switch pages |
-| `Enter` | Launch selected app or expand folder |
-| `Escape` | Reset search query / close expanded folder / close Launchpad |
-| `Two-finger Swipe` | Swipe left/right on trackpad to slide pages |
-| `Scroll Wheel` | Scroll on mouse wheel to switch pages |
+### Prerequisites
+- macOS 10.15 (Catalina) or later.
+- Command-line build tools (install via `xcode-select --install`).
 
----
+### Build & Run
+1. Open terminal and navigate to the project directory:
+   ```bash
+   cd MacOS_Launchpad
+   ```
+2. Build and sign the application bundle:
+   ```bash
+   ./build.sh
+   ```
+3. Run the application:
+   ```bash
+   open "Launchpad Classic.app"
+   ```
 
-## App Sharing & Gatekeeper (Unidentified Developer)
-
-Since this app is ad-hoc signed locally, sharing the raw app bundle directly with other users will trigger macOS Gatekeeper blocks.
-
-### Packaging
-To share with friends, package the app folder into a ZIP archive to preserve execution permissions and bundle structures:
+### Gatekeeper Workaround for Shared Bundles
+To share the built bundle with friends, compress it first to maintain attributes:
 ```bash
 zip -r -y Launchpad_Classic.zip "Launchpad Classic.app"
 ```
-
-### Bypassing Gatekeeper on Other Macs
-When your friends download and extract the app, they can open it by:
-1.  **Right-clicking (or Control-clicking)** the extracted `Launchpad Classic.app` in Finder, choosing **Open**, and then clicking **Open** in the confirmation dialog.
-2.  Or by opening Terminal and clearing the quarantine quarantine attribute:
-    ```bash
-    xattr -cr /path/to/Launchpad\ Classic.app
-    ```
+On their machine, they can clear Gatekeeper alerts using terminal:
+```bash
+xattr -cr /path/to/Launchpad\ Classic.app
+```
 
 ---
 
-## License
+## ⌨️ Controls & Shortcuts
+
+| Action | macOS Shortcut | Windows Shortcut |
+| :--- | :--- | :--- |
+| **Toggle Launcher** | `Option + Space` (configurable) | `Alt + Space` (global hook) |
+| **Selection Highlight** | `Arrow Keys` | `Arrow Keys` |
+| **Paging** | `Page Up / Down` | `Page Up / Down` |
+| **Select / Launch** | `Enter` | `Enter` |
+| **Dismiss / Clear** | `Escape` | `Escape` |
+| **Swipe Navigation** | Trackpad swiping | Trackpad swiping |
+| **Scroll Navigation** | Scroll wheel ticking | Scroll wheel ticking |
+
+---
+
+## 📄 License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
