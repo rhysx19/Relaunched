@@ -20,6 +20,7 @@ struct LaunchpadView: View {
     @State private var focusedIndex: Int? = nil
     @State private var expandedFolder: FolderItem? = nil
     @State private var folderFocusedIndex: Int? = nil
+    @State private var folderPage: Int = 0
     @State private var draggedItem: LaunchpadItem? = nil
     
     // Daemon preferences state
@@ -35,7 +36,10 @@ struct LaunchpadView: View {
     @AppStorage("LaunchpadColumns") private var columnsCount: Int = 7
     @AppStorage("LaunchpadRows") private var rowsCount: Int = 5
     @AppStorage("LaunchpadIconSize") private var iconSizeSelection: Double = 80.0
+    /// "paged" = classic horizontal pages, "vertical" = one continuously scrolling grid
+    @AppStorage("LaunchpadLayoutStyle") private var layoutStyle: String = "paged"
     private var appsPerPage: Int { columnsCount * rowsCount }
+    private var isVerticalLayout: Bool { layoutStyle == "vertical" }
     @AppStorage("LaunchpadBgTintOpacity") private var bgTintOpacity: Double = 0.15
     @AppStorage("LaunchpadShowLabels") private var showLabels: Bool = true
     @AppStorage("LaunchpadShowSuggestions") private var showSuggestions: Bool = true
@@ -121,6 +125,15 @@ struct LaunchpadView: View {
                         SkeletonGridView(columns: columnsCount)
                             .frame(height: gridHeight)
                             .transition(.opacity)
+                    } else if searchQuery.isEmpty && isVerticalLayout {
+                        // Single continuously scrolling grid (alternative layout style)
+                        verticalMainGrid(
+                            screenWidth: screenWidth,
+                            gridHeight: gridHeight,
+                            iconSize: iconSize,
+                            rowSpacing: rowSpacing,
+                            columnSpacing: columnSpacing
+                        )
                     } else if searchQuery.isEmpty {
                         // Horizontal Paged Grid
                         let pages = chunkedItems(items, size: appsPerPage)
@@ -311,7 +324,7 @@ struct LaunchpadView: View {
                                     }
                                 }
                             
-                            if pageCount > 1 {
+                            if pageCount > 1 && !isVerticalLayout {
                                 PageControlView(numberOfPages: pageCount, currentPage: $currentPage, dragOffset: dragOffset, screenWidth: screenWidth)
                             }
                             
@@ -406,6 +419,8 @@ struct LaunchpadView: View {
                         folder: folder,
                         iconSize: CGFloat(iconSizeSelection),
                         focusedIndex: folderFocusedIndex,
+                        usesPaging: !isVerticalLayout,
+                        page: $folderPage,
                         onClose: {
                             withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
                                 expandedFolder = nil
@@ -439,6 +454,7 @@ struct LaunchpadView: View {
                 
                 if isShowingSettings {
                     SettingsCardOverlayView(
+                        layoutStyle: $layoutStyle,
                         columnsCount: $columnsCount,
                         rowsCount: $rowsCount,
                         iconSizeSelection: $iconSizeSelection,
@@ -550,6 +566,13 @@ struct LaunchpadView: View {
                     scrollMonitor = nil
                 }
                 stopEdgeMonitor()
+            }
+            // Focus indices mean different things per layout style, so reset on switch
+            .onChange(of: layoutStyle) { _, _ in
+                currentPage = 0
+                focusedIndex = nil
+                dragOffset = 0
+                folderPage = 0
             }
             // Keyboard event hooks
             .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("LaunchpadKeyDown"))) { notification in
@@ -667,8 +690,56 @@ struct LaunchpadView: View {
         }
     }
     
+    /// Alternative layout: every item in one tall grid that scrolls vertically.
+    /// Keyboard focus scrolls the grid to keep the highlighted icon visible.
+    private func verticalMainGrid(screenWidth: CGFloat, gridHeight: CGFloat, iconSize: CGFloat, rowSpacing: CGFloat, columnSpacing: CGFloat) -> some View {
+        let totalRows: Int = max(1, (items.count + columnsCount - 1) / columnsCount)
+        
+        return ScrollViewReader { proxy in
+            ScrollView(.vertical, showsIndicators: false) {
+                ItemGridView(
+                    items: items,
+                    columns: columnsCount,
+                    rows: totalRows,
+                    focusedIndex: focusedIndex,
+                    pageIndex: 0,
+                    currentPage: 0,
+                    iconSize: iconSize,
+                    rowSpacing: rowSpacing,
+                    columnSpacing: columnSpacing,
+                    draggedItem: $draggedItem,
+                    listData: $items,
+                    hoveredMergeTarget: $hoveredMergeTarget,
+                    onLaunch: launchItemAction,
+                    onHide: hideAppAction,
+                    onDisbandFolder: disbandFolderAction,
+                    onMoveToFolder: moveAppToFolderAction,
+                    onRemoveFromFolder: removeAppFromFolderAction,
+                    onCreateFolder: createFolderWithAppAction,
+                    onMerge: mergeItemsAction,
+                    onShowInfo: showAppInfoAction,
+                    onMoveToTrash: moveAppToTrashAction
+                )
+            }
+            .frame(width: screenWidth, height: gridHeight + 10)
+            .onChange(of: focusedIndex) { _, newIdx in
+                guard let idx = newIdx, idx >= 0, idx < items.count else { return }
+                withAnimation(.easeOut(duration: 0.2)) {
+                    proxy.scrollTo(items[idx].id, anchor: nil)
+                }
+            }
+        }
+        .transition(.opacity)
+    }
+    
     private func handleScrollWheel(with event: NSEvent) {
-        guard expandedFolder == nil else { return }
+        if expandedFolder != nil {
+            handleFolderScrollWheel(with: event)
+            return
+        }
+        
+        // Vertical layout scrolls natively inside its ScrollView
+        guard !isVerticalLayout else { return }
         
         let deltaX = event.scrollingDeltaX
         let hasPrecise = event.hasPreciseScrollingDeltas
@@ -730,6 +801,53 @@ struct LaunchpadView: View {
         }
     }
     
+    /// Scroll-wheel / trackpad paging for an expanded folder (paged layout only;
+    /// vertically scrolling folders are handled natively by their ScrollView).
+    private func handleFolderScrollWheel(with event: NSEvent) {
+        guard let folder = expandedFolder, !isVerticalLayout else { return }
+        let pageCount = FolderOverlayView.pageCount(forAppCount: folder.apps.count)
+        guard pageCount > 1 else { return }
+        
+        let deltaX = event.scrollingDeltaX
+        let hasPrecise = event.hasPreciseScrollingDeltas
+        
+        if !hasPrecise {
+            // Discrete mouse scroll wheel: page immediately
+            let threshold: CGFloat = 3.0
+            let step = deltaX * 15.0
+            if step < -threshold {
+                flipFolderPage(1, pageCount: pageCount)
+            } else if step > threshold {
+                flipFolderPage(-1, pageCount: pageCount)
+            }
+            return
+        }
+        
+        // Trackpad swipe: accumulate, then page on release
+        guard event.momentumPhase.isEmpty else { return }
+        if event.phase == .began { accumDeltaX = 0 }
+        accumDeltaX += deltaX
+        
+        if event.phase == .ended || event.phase == .cancelled {
+            let threshold: CGFloat = 60
+            if accumDeltaX < -threshold {
+                flipFolderPage(1, pageCount: pageCount)
+            } else if accumDeltaX > threshold {
+                flipFolderPage(-1, pageCount: pageCount)
+            }
+            accumDeltaX = 0
+        }
+    }
+    
+    private func flipFolderPage(_ direction: Int, pageCount: Int) {
+        let target = folderPage + direction
+        guard target >= 0 && target < pageCount else { return }
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.82)) {
+            folderPage = target
+            folderFocusedIndex = nil
+        }
+    }
+    
     private func refreshLayout() {
         let layout = AppScanner.scanAndResolveLayout()
         let apps = AppScanner.scanForApps()
@@ -755,6 +873,7 @@ struct LaunchpadView: View {
     
     private func resetLayoutAction() {
         withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+            layoutStyle = "paged"
             columnsCount = 7
             rowsCount = 5
             let isSmallScreen = (NSScreen.main?.frame.height ?? 1080) < 950
@@ -763,6 +882,7 @@ struct LaunchpadView: View {
             currentPage = 0
         }
         
+        UserDefaults.standard.set("paged", forKey: "LaunchpadLayoutStyle")
         UserDefaults.standard.set(7, forKey: "LaunchpadColumns")
         UserDefaults.standard.set(5, forKey: "LaunchpadRows")
         let isSmallScreen = (NSScreen.main?.frame.height ?? 1080) < 950
@@ -789,6 +909,7 @@ struct LaunchpadView: View {
             withAnimation(.spring(response: 0.38, dampingFraction: 0.8)) {
                 expandedFolder = folder
                 folderFocusedIndex = nil
+                folderPage = 0
             }
         }
     }
@@ -1120,6 +1241,7 @@ struct LaunchpadView: View {
     }
     
     private func checkEdgeHover() {
+        guard !isVerticalLayout else { return }
         guard draggedItem != nil, expandedFolder == nil, searchQuery.isEmpty else {
             stopEdgeMonitor()
             return
@@ -1161,11 +1283,15 @@ struct LaunchpadView: View {
         }
         
         let isSearching = !searchQuery.isEmpty
+        // Search results and the vertical layout are one flat grid: no page hops
+        let isFlatGrid = isSearching || isVerticalLayout
         let pageItems: [LaunchpadItem]
         
         if isSearching {
             let filtered = AppScanner.rankedSearch(query: searchQuery, apps: allApps)
             pageItems = filtered.map { .app($0) }
+        } else if isVerticalLayout {
+            pageItems = items
         } else {
             let pages = chunkedItems(items, size: appsPerPage)
             guard currentPage < pages.count else { return }
@@ -1180,7 +1306,7 @@ struct LaunchpadView: View {
         case 123: // Left Arrow
             if currentIdx == -1 {
                 currentIdx = pageItems.count - 1
-            } else if currentIdx == 0 && !isSearching && currentPage > 0 {
+            } else if currentIdx == 0 && !isFlatGrid && currentPage > 0 {
                 currentPage -= 1
                 let prevPageCount = chunkedItems(items, size: appsPerPage)[currentPage].count
                 currentIdx = prevPageCount - 1
@@ -1190,7 +1316,7 @@ struct LaunchpadView: View {
         case 124: // Right Arrow
             if currentIdx == -1 {
                 currentIdx = 0
-            } else if currentIdx == pageItems.count - 1 && !isSearching && currentPage < chunkedItems(items, size: appsPerPage).count - 1 {
+            } else if currentIdx == pageItems.count - 1 && !isFlatGrid && currentPage < chunkedItems(items, size: appsPerPage).count - 1 {
                 currentPage += 1
                 currentIdx = 0
             } else {
@@ -1220,12 +1346,12 @@ struct LaunchpadView: View {
                 launchOrOpenItem(selectedItem)
             }
         case 116: // Page Up
-            if !isSearching && currentPage > 0 {
+            if !isFlatGrid && currentPage > 0 {
                 currentPage -= 1
                 currentIdx = 0
             }
         case 121: // Page Down
-            if !isSearching && currentPage < chunkedItems(items, size: appsPerPage).count - 1 {
+            if !isFlatGrid && currentPage < chunkedItems(items, size: appsPerPage).count - 1 {
                 currentPage += 1
                 currentIdx = 0
             }
@@ -1244,6 +1370,8 @@ struct LaunchpadView: View {
         var currentIdx = folderFocusedIndex ?? -1
         // Mirrors FolderOverlayView's adaptive column count
         let folderColumns = min(max(apps.count, 1), 5)
+        let isPagedFolder = !isVerticalLayout && apps.count > FolderOverlayView.pageCapacity
+        let folderPageCount = FolderOverlayView.pageCount(forAppCount: apps.count)
         
         switch keyCode {
         case 123: // Left
@@ -1263,6 +1391,14 @@ struct LaunchpadView: View {
                 let target = currentIdx + folderColumns
                 if target < apps.count { currentIdx = target }
             }
+        case 116: // Page Up
+            if isPagedFolder && folderPage > 0 {
+                currentIdx = (folderPage - 1) * FolderOverlayView.pageCapacity
+            }
+        case 121: // Page Down
+            if isPagedFolder && folderPage < folderPageCount - 1 {
+                currentIdx = (folderPage + 1) * FolderOverlayView.pageCapacity
+            }
         case 36: // Enter
             if currentIdx >= 0 && currentIdx < apps.count {
                 launchAppAction(apps[currentIdx])
@@ -1272,6 +1408,16 @@ struct LaunchpadView: View {
         }
         
         folderFocusedIndex = currentIdx
+        
+        // Keep the folder page in sync with keyboard focus
+        if isPagedFolder && currentIdx >= 0 {
+            let targetPage = currentIdx / FolderOverlayView.pageCapacity
+            if targetPage != folderPage {
+                withAnimation(.spring(response: 0.35, dampingFraction: 0.82)) {
+                    folderPage = targetPage
+                }
+            }
+        }
     }
     
     private func launchOrOpenItem(_ item: LaunchpadItem) {
@@ -1282,6 +1428,7 @@ struct LaunchpadView: View {
             withAnimation(.spring(response: 0.38, dampingFraction: 0.8)) {
                 expandedFolder = folder
                 folderFocusedIndex = nil
+                folderPage = 0
             }
         }
     }
@@ -2099,6 +2246,9 @@ struct FolderOverlayView: View {
     let folder: FolderItem
     let iconSize: CGFloat
     let focusedIndex: Int?
+    /// Horizontal pages past 15 apps (paged layout style); false = vertical scroll
+    let usesPaging: Bool
+    @Binding var page: Int
     let onClose: () -> Void
     let onRename: (String) -> Void
     let onLaunchApp: (AppInfo) -> Void
@@ -2107,6 +2257,16 @@ struct FolderOverlayView: View {
     @State private var folderName: String = ""
     @State private var isRenameFocused: Bool = false
     @State private var isTitleHovered: Bool = false
+    @State private var dragOffsetX: CGFloat = 0
+    
+    /// 5 columns x 3 rows per page once a folder paginates
+    static let pageCapacity = 15
+    static func pageCount(forAppCount count: Int) -> Int {
+        max(1, (count + pageCapacity - 1) / pageCapacity)
+    }
+    
+    private var isPaged: Bool { usesPaging && folder.apps.count > Self.pageCapacity }
+    private var pageCount: Int { Self.pageCount(forAppCount: folder.apps.count) }
     
     /// Columns adapt to the app count so small folders get a snug panel
     /// instead of swimming inside a fixed-size box.
@@ -2134,6 +2294,7 @@ struct FolderOverlayView: View {
             }
             .onChange(of: folder) { _, newFolder in
                 folderName = newFolder.name
+                page = min(page, Self.pageCount(forAppCount: newFolder.apps.count) - 1)
             }
         }
     }
@@ -2206,23 +2367,27 @@ struct FolderOverlayView: View {
         .shadow(color: .black.opacity(0.5), radius: 6, x: 0, y: 2)
     }
     
-    /// Content-sized glass panel; tall folders scroll beyond three rows
+    /// Content-sized glass panel; large folders page horizontally (paged layout)
+    /// or scroll vertically (vertical layout) beyond three rows
     private func panel(screenWidth: CGFloat) -> some View {
         let rawWidth: CGFloat = CGFloat(columnCount) * cellWidth + CGFloat(max(columnCount - 1, 0)) * columnSpacing + 72
         let panelWidth: CGFloat = min(rawWidth, screenWidth * 0.8)
-        let needsScroll: Bool = rowCount > 3
+        let contentWidth: CGFloat = panelWidth - 72
+        let needsScroll: Bool = !isPaged && rowCount > 3
         let visibleRows: Int = min(rowCount, 3)
         let rowHeight: CGFloat = iconSize + 26
         let gridHeight: CGFloat = CGFloat(visibleRows) * rowHeight + CGFloat(max(visibleRows - 1, 0)) * rowSpacing
         
         return Group {
-            if needsScroll {
+            if isPaged {
+                pagedContent(contentWidth: contentWidth, gridHeight: gridHeight)
+            } else if needsScroll {
                 ScrollView(showsIndicators: false) {
-                    appGrid
+                    appGrid(indices: 0..<folder.apps.count)
                 }
                 .frame(height: gridHeight)
             } else {
-                appGrid
+                appGrid(indices: 0..<folder.apps.count)
             }
         }
         .padding(.horizontal, 36)
@@ -2237,11 +2402,56 @@ struct FolderOverlayView: View {
         }
     }
     
-    private var appGrid: some View {
+    /// Horizontal pages of 5x3 with swipe + dots, like native Launchpad folders
+    private func pagedContent(contentWidth: CGFloat, gridHeight: CGFloat) -> some View {
+        VStack(spacing: 18) {
+            HStack(alignment: .top, spacing: 0) {
+                ForEach(0..<pageCount, id: \.self) { pageIdx in
+                    let start = pageIdx * Self.pageCapacity
+                    let end = min(start + Self.pageCapacity, folder.apps.count)
+                    
+                    appGrid(indices: start..<end)
+                        .frame(width: contentWidth, height: gridHeight, alignment: .top)
+                }
+            }
+            .frame(width: contentWidth * CGFloat(pageCount), alignment: .leading)
+            .offset(x: -CGFloat(page) * contentWidth + dragOffsetX)
+            .frame(width: contentWidth, alignment: .leading)
+            .clipped()
+            .contentShape(Rectangle())
+            .gesture(pagingDrag(contentWidth: contentWidth))
+            
+            PageControlView(numberOfPages: pageCount, currentPage: $page, dragOffset: dragOffsetX, screenWidth: contentWidth)
+        }
+    }
+    
+    private func pagingDrag(contentWidth: CGFloat) -> some Gesture {
+        DragGesture()
+            .onChanged { value in
+                let translation = value.translation.width
+                let atStart = (page == 0 && translation > 0)
+                let atEnd = (page == pageCount - 1 && translation < 0)
+                dragOffsetX = (atStart || atEnd) ? translation * 0.3 : translation
+            }
+            .onEnded { value in
+                let threshold: CGFloat = 80
+                let velocity = value.predictedEndTranslation.width
+                withAnimation(.spring(response: 0.35, dampingFraction: 0.82)) {
+                    if velocity < -threshold && page < pageCount - 1 {
+                        page += 1
+                    } else if velocity > threshold && page > 0 {
+                        page -= 1
+                    }
+                    dragOffsetX = 0
+                }
+            }
+    }
+    
+    private func appGrid(indices: Range<Int>) -> some View {
         let folderColumns = Array(repeating: GridItem(.fixed(cellWidth), spacing: columnSpacing), count: columnCount)
         
         return LazyVGrid(columns: folderColumns, spacing: rowSpacing) {
-            ForEach(0..<folder.apps.count, id: \.self) { idx in
+            ForEach(indices, id: \.self) { idx in
                 let app = folder.apps[idx]
                 let isFocused = (focusedIndex == idx)
                 
@@ -2459,6 +2669,7 @@ struct SearchTextField: NSViewRepresentable {
 }
 
 struct SettingsCardOverlayView: View {
+    @Binding var layoutStyle: String
     @Binding var columnsCount: Int
     @Binding var rowsCount: Int
     @Binding var iconSizeSelection: Double
@@ -2557,6 +2768,15 @@ struct SettingsCardOverlayView: View {
     private var layoutTab: some View {
         VStack(alignment: .leading, spacing: 12) {
             sectionHeader("Grid")
+            
+            HStack {
+                Text("Layout")
+                    .font(.system(size: 13))
+                    .foregroundColor(.white.opacity(0.85))
+                Spacer()
+                layoutStylePicker
+            }
+            .help("Pages flip horizontally like classic Launchpad; Scroll is one continuous vertical grid.")
             
             HStack {
                 Text("Columns")
@@ -2740,6 +2960,44 @@ struct SettingsCardOverlayView: View {
             .font(.system(size: 10.5, weight: .semibold))
             .tracking(0.8)
             .foregroundColor(.white.opacity(0.4))
+    }
+    
+    private var layoutStylePicker: some View {
+        HStack(spacing: 2) {
+            layoutStyleOption(value: "paged", title: "Pages", symbol: "square.split.2x1")
+            layoutStyleOption(value: "vertical", title: "Scroll", symbol: "arrow.up.arrow.down")
+        }
+        .padding(2)
+        .background(
+            Capsule()
+                .fill(Color.white.opacity(0.07))
+        )
+    }
+    
+    private func layoutStyleOption(value: String, title: String, symbol: String) -> some View {
+        let isSelected = (layoutStyle == value)
+        
+        return Button {
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                layoutStyle = value
+            }
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: symbol)
+                    .font(.system(size: 9, weight: .semibold))
+                Text(title)
+                    .font(.system(size: 11, weight: .medium))
+            }
+            .foregroundColor(isSelected ? .white : .white.opacity(0.55))
+            .padding(.vertical, 4)
+            .padding(.horizontal, 10)
+            .background(
+                Capsule()
+                    .fill(isSelected ? Color.blue.opacity(0.75) : Color.clear)
+            )
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
     }
     
     private func settingToggle(_ title: String, isOn: Binding<Bool>, subdued: Bool = false) -> some View {

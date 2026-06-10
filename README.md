@@ -30,6 +30,8 @@ Built natively with **SwiftUI** & **AppKit** (targeting macOS 10.15+). Free and 
   - Drag an icon to the screen edge to flip between pages, just like native Launchpad.
 - 🛠 **App Management**: right-click any app for Get Info (version, bundle ID, location, usage), Show in Finder, Hide, or Move to Trash.
 - 📐 **Responsive Paginated Grids**:
+  - Two layout styles: classic horizontal **Pages**, or one continuously scrolling vertical grid (**Scroll**) — switch anytime in Settings.
+  - Large folders page horizontally with swipe gestures and page dots, just like native Launchpad (or scroll vertically in Scroll mode).
   - Configure columns, rows, and icon dimensions in real-time.
   - Apps animate smoothly using spring physics during layout shifts.
   - Safe-scaling rules shrink layout dimensions on smaller viewports to prevent screen overflows.
@@ -38,7 +40,7 @@ Built natively with **SwiftUI** & **AppKit** (targeting macOS 10.15+). Free and 
   - **Calculator**: Type simple mathematical expressions (e.g. `12 * (4 + 6)`) to solve instantly. Click the action card to copy the result.
   - **System Control**: Execute commands like `Lock`, `Sleep`, `Restart`, or `Shutdown` directly from the search bar.
 - ⚙️ **Integrated Settings**:
-  - Modify rows, columns, icon sizes, background dim, and icon-label visibility instantly with changes updating in real-time.
+  - Modify layout style, rows, columns, icon sizes, background dim, and icon-label visibility instantly with changes updating in real-time.
   - Control Launch at Login, daemon status bar controls, Dock presence, the global hotkey, trackpad pinch gestures, and check for updates in-app.
 - 🔒 **Dock & Menu Bar Hiding**:
   - Hides the macOS Dock and Menu Bar while the launcher is active to prevent mouse hover conflicts.
