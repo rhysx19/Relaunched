@@ -5,7 +5,7 @@
 Relaunched is a lightweight, native, highly customizable full-screen app launcher for macOS — restoring the beloved classic Launchpad experience with elegant desktop backdrop blurs, animated paging grids, glassmorphic folders, trackpad pinch gestures, power-user math calculations, and full keyboard navigation.
 
 <p align="center">
-  <img src="AppIcon.icns" width="128" height="128" alt="Relaunched Icon" />
+  <img src="docs/icon.png" width="128" height="128" alt="Relaunched Icon" />
 </p>
 
 Built natively with **SwiftUI** & **AppKit** (targeting macOS 10.15+). Free and open source under the MIT license.
