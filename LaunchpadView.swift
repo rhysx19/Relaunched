@@ -404,6 +404,7 @@ struct LaunchpadView: View {
                 if let folder = expandedFolder {
                     FolderOverlayView(
                         folder: folder,
+                        iconSize: CGFloat(iconSizeSelection),
                         focusedIndex: folderFocusedIndex,
                         onClose: {
                             withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
@@ -433,7 +434,7 @@ struct LaunchpadView: View {
                             }
                         }
                     )
-                    .transition(.opacity.combined(with: .scale(scale: 0.95)))
+                    .transition(.opacity.combined(with: .scale(scale: 0.8)))
                 }
                 
                 if isShowingSettings {
@@ -458,8 +459,7 @@ struct LaunchpadView: View {
                             }
                         }
                     )
-                    .transition(.move(edge: .bottom).combined(with: .opacity).combined(with: .scale(scale: 0.95)))
-                    .padding(.bottom, 110)
+                    .transition(.opacity.combined(with: .scale(scale: 0.92)))
                 }
                 
                 // App "Get Info" panel
@@ -1242,7 +1242,8 @@ struct LaunchpadView: View {
         guard !apps.isEmpty else { return }
         
         var currentIdx = folderFocusedIndex ?? -1
-        let folderColumns = 4
+        // Mirrors FolderOverlayView's adaptive column count
+        let folderColumns = min(max(apps.count, 1), 5)
         
         switch keyCode {
         case 123: // Left
@@ -1947,31 +1948,40 @@ struct FolderMiniGrid: View {
     let iconSize: CGFloat
     
     var body: some View {
-        let gridItems = Array(repeating: GridItem(.flexible(), spacing: 5), count: 3)
+        // 3x3 preview that always fits the tile: 3 minis + 2 gaps + 2 pads <= iconSize
+        let mini = iconSize * 0.24
+        let gap = iconSize * 0.05
+        let pad = (iconSize - 3 * mini - 2 * gap) / 2
+        let gridItems = Array(repeating: GridItem(.fixed(mini), spacing: gap), count: 3)
         
-        LazyVGrid(columns: gridItems, spacing: 5) {
+        LazyVGrid(columns: gridItems, spacing: gap) {
             ForEach(apps.prefix(9)) { app in
                 Image(nsImage: app.icon)
                     .resizable()
-                    .frame(width: iconSize * 0.22, height: iconSize * 0.22)
-                    .cornerRadius(2.5)
+                    .frame(width: mini, height: mini)
+                    .cornerRadius(mini * 0.18)
             }
             // Retain spacing consistency
             if apps.count < 9 {
                 ForEach(0..<(9 - apps.count), id: \.self) { _ in
                     Color.clear
-                        .frame(width: iconSize * 0.22, height: iconSize * 0.22)
+                        .frame(width: mini, height: mini)
                 }
             }
         }
-        .padding(10)
+        .padding(pad)
         .frame(width: iconSize, height: iconSize)
         .background(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(Color.black.opacity(0.22))
+            // Light frosted tile like native Launchpad folders, instead of a dark hole
+            RoundedRectangle(cornerRadius: iconSize * 0.225, style: .continuous)
+                .fill(Color.white.opacity(0.16))
+                .background(
+                    VisualEffectView()
+                        .clipShape(RoundedRectangle(cornerRadius: iconSize * 0.225, style: .continuous))
+                )
                 .overlay(
-                    RoundedRectangle(cornerRadius: 18, style: .continuous)
-                        .stroke(Color.white.opacity(0.12), lineWidth: 1)
+                    RoundedRectangle(cornerRadius: iconSize * 0.225, style: .continuous)
+                        .stroke(Color.white.opacity(0.22), lineWidth: 1)
                 )
         )
     }
@@ -2059,7 +2069,7 @@ struct FolderTitleTextField: NSViewRepresentable {
         textField.drawsBackground = false
         textField.focusRingType = .none
         textField.textColor = .white
-        textField.font = .systemFont(ofSize: 28, weight: .bold)
+        textField.font = .systemFont(ofSize: 30, weight: .medium)
         textField.alignment = .center
         textField.isEditable = true
         textField.isSelectable = true
@@ -2087,6 +2097,7 @@ struct FolderTitleTextField: NSViewRepresentable {
 
 struct FolderOverlayView: View {
     let folder: FolderItem
+    let iconSize: CGFloat
     let focusedIndex: Int?
     let onClose: () -> Void
     let onRename: (String) -> Void
@@ -2095,137 +2106,27 @@ struct FolderOverlayView: View {
     
     @State private var folderName: String = ""
     @State private var isRenameFocused: Bool = false
+    @State private var isTitleHovered: Bool = false
+    
+    /// Columns adapt to the app count so small folders get a snug panel
+    /// instead of swimming inside a fixed-size box.
+    private var columnCount: Int { min(max(folder.apps.count, 1), 5) }
+    private var rowCount: Int { (folder.apps.count + columnCount - 1) / columnCount }
+    
+    // Layout metrics (kept as simple stored expressions so the
+    // type-checker never has to chew through one giant body)
+    private var cellWidth: CGFloat { iconSize + 20 }
+    private let columnSpacing: CGFloat = 22
+    private let rowSpacing: CGFloat = 26
     
     var body: some View {
         GeometryReader { geom in
-            let screenWidth = geom.size.width
-            let screenHeight = geom.size.height
-            
             ZStack {
-                // Dim blurred backdrop that fills the entire screen
-                Color.black.opacity(0.35)
-                    .edgesIgnoringSafeArea(.all)
-                    .onTapGesture {
-                        onClose()
-                    }
-                    .onDrop(of: [UTType.text.identifier], isTargeted: nil) { providers in
-                        if let provider = providers.first {
-                            provider.loadItem(forTypeIdentifier: UTType.text.identifier, options: nil) { (data, error) in
-                                // Handle both Data (UTF8 bytes) and direct String from NSItemProvider
-                                var path: String? = nil
-                                if let data = data as? Data {
-                                    path = String(data: data, encoding: .utf8)
-                                } else if let str = data as? String {
-                                    path = str
-                                }
-                                
-                                if let appPath = path {
-                                    DispatchQueue.main.async {
-                                        if let appToRemove = folder.apps.first(where: { $0.path == appPath }) {
-                                            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-                                                onRemoveApp(appToRemove)
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        return true
-                    }
+                backdrop
                 
-                // Centered, premium glassmorphic folder container
-                VStack(spacing: 20) {
-                    // Header inside the container (HStack with title text field and pencil icon)
-                    HStack(spacing: 8) {
-                        ZStack {
-                            // Hidden text to measure size dynamically
-                            Text((folderName.isEmpty ? " " : folderName) + "  ")
-                                .font(.system(size: 28, weight: .bold))
-                                .opacity(0) // Invisible, used only for horizontal expansion
-                                .padding(.horizontal, 16)
-                                .frame(height: 40)
-                                .frame(minWidth: 120)
-                            
-                            FolderTitleTextField(text: $folderName, isFocused: $isRenameFocused, onCommit: {
-                                let trimmed = folderName.trimmingCharacters(in: .whitespacesAndNewlines)
-                                if !trimmed.isEmpty {
-                                    onRename(trimmed)
-                                } else {
-                                    folderName = folder.name
-                                }
-                            })
-                            .frame(height: 40)
-                        }
-                        .fixedSize(horizontal: true, vertical: false)
-                        .background(
-                            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                .fill(isRenameFocused ? Color.white.opacity(0.12) : Color.clear)
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                        .stroke(isRenameFocused ? Color.white.opacity(0.24) : Color.clear, lineWidth: 1)
-                                )
-                        )
-                        
-                        Button(action: {
-                            isRenameFocused.toggle()
-                        }) {
-                            Image(systemName: "pencil")
-                                .foregroundColor(isRenameFocused ? Color.blue : Color.white.opacity(0.6))
-                                .font(.system(size: 16))
-                        }
-                        .buttonStyle(.plain)
-                    }
-                    .padding(.top, 24)
-                    
-                    // Folder Grid Container
-                    let folderColumns = Array(repeating: GridItem(.flexible(), spacing: 24), count: 5)
-                    
-                    ScrollView(showsIndicators: false) {
-                        LazyVGrid(columns: folderColumns, spacing: 30) {
-                            ForEach(0..<folder.apps.count, id: \.self) { idx in
-                                let app = folder.apps[idx]
-                                let isFocused = (focusedIndex == idx)
-                                
-                                InnerFolderAppCell(
-                                    app: app,
-                                    isFocused: isFocused,
-                                    onLaunch: { onLaunchApp(app) },
-                                    onRemove: { onRemoveApp(app) }
-                                )
-                            }
-                        }
-                        .padding(.horizontal, 40)
-                        .padding(.bottom, 35)
-                    }
-                }
-                .frame(width: min(640, screenWidth * 0.7), height: min(520, screenHeight * 0.6))
-                .background(
-                    RoundedRectangle(cornerRadius: 32, style: .continuous)
-                        .fill(Color.black.opacity(0.25))
-                        .background(
-                            VisualEffectView()
-                                .clipShape(RoundedRectangle(cornerRadius: 32, style: .continuous))
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 32, style: .continuous)
-                                .stroke(Color.white.opacity(0.15), lineWidth: 1)
-                        )
-                )
-                .overlay(
-                    Button(action: onClose) {
-                        Image(systemName: "xmark.circle.fill")
-                            .foregroundColor(.white.opacity(0.4))
-                            .font(.system(size: 18))
-                            .padding(16)
-                    }
-                    .buttonStyle(.plain),
-                    alignment: .topTrailing
-                )
-                .shadow(color: Color.black.opacity(0.4), radius: 30, x: 0, y: 15)
-                .onDrop(of: [UTType.text.identifier], isTargeted: nil) { _ in
-                    // Return true to indicate we handled the drop, but do nothing.
-                    // This intercepts drops inside the folder box so they don't propagate to the backdrop.
-                    return true
+                VStack(spacing: 18) {
+                    titleView
+                    panel(screenWidth: geom.size.width)
                 }
             }
             .onAppear {
@@ -2236,10 +2137,142 @@ struct FolderOverlayView: View {
             }
         }
     }
+    
+    /// Dim backdrop: click closes; dropping an icon here pulls it out of the folder
+    private var backdrop: some View {
+        Color.black.opacity(0.35)
+            .edgesIgnoringSafeArea(.all)
+            .onTapGesture {
+                onClose()
+            }
+            .onDrop(of: [UTType.text.identifier], isTargeted: nil) { providers in
+                if let provider = providers.first {
+                    provider.loadItem(forTypeIdentifier: UTType.text.identifier, options: nil) { (data, error) in
+                        // Handle both Data (UTF8 bytes) and direct String from NSItemProvider
+                        var path: String? = nil
+                        if let data = data as? Data {
+                            path = String(data: data, encoding: .utf8)
+                        } else if let str = data as? String {
+                            path = str
+                        }
+                        
+                        if let appPath = path {
+                            DispatchQueue.main.async {
+                                if let appToRemove = folder.apps.first(where: { $0.path == appPath }) {
+                                    withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                                        onRemoveApp(appToRemove)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                return true
+            }
+    }
+    
+    /// Floating title above the panel, like native Launchpad.
+    /// Click it to rename — no pencil chrome needed.
+    private var titleView: some View {
+        ZStack {
+            // Hidden text mirrors the field's content to size it dynamically
+            Text((folderName.isEmpty ? " " : folderName) + " ")
+                .font(.system(size: 30, weight: .medium))
+                .opacity(0)
+                .padding(.horizontal, 18)
+                .frame(height: 44)
+                .frame(minWidth: 140)
+            
+            FolderTitleTextField(text: $folderName, isFocused: $isRenameFocused, onCommit: {
+                let trimmed = folderName.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmed.isEmpty {
+                    onRename(trimmed)
+                } else {
+                    folderName = folder.name
+                }
+            })
+            .frame(height: 44)
+        }
+        .fixedSize(horizontal: true, vertical: false)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(Color.white.opacity(isRenameFocused ? 0.14 : (isTitleHovered ? 0.08 : 0)))
+        )
+        .onHover { hovering in
+            withAnimation(.easeOut(duration: 0.15)) {
+                isTitleHovered = hovering
+            }
+        }
+        .shadow(color: .black.opacity(0.5), radius: 6, x: 0, y: 2)
+    }
+    
+    /// Content-sized glass panel; tall folders scroll beyond three rows
+    private func panel(screenWidth: CGFloat) -> some View {
+        let rawWidth: CGFloat = CGFloat(columnCount) * cellWidth + CGFloat(max(columnCount - 1, 0)) * columnSpacing + 72
+        let panelWidth: CGFloat = min(rawWidth, screenWidth * 0.8)
+        let needsScroll: Bool = rowCount > 3
+        let visibleRows: Int = min(rowCount, 3)
+        let rowHeight: CGFloat = iconSize + 26
+        let gridHeight: CGFloat = CGFloat(visibleRows) * rowHeight + CGFloat(max(visibleRows - 1, 0)) * rowSpacing
+        
+        return Group {
+            if needsScroll {
+                ScrollView(showsIndicators: false) {
+                    appGrid
+                }
+                .frame(height: gridHeight)
+            } else {
+                appGrid
+            }
+        }
+        .padding(.horizontal, 36)
+        .padding(.vertical, 30)
+        .frame(width: panelWidth)
+        .background(panelBackground)
+        .shadow(color: Color.black.opacity(0.4), radius: 30, x: 0, y: 15)
+        .onDrop(of: [UTType.text.identifier], isTargeted: nil) { _ in
+            // Intercept drops inside the panel so they don't reach the
+            // backdrop and accidentally remove the app from the folder.
+            return true
+        }
+    }
+    
+    private var appGrid: some View {
+        let folderColumns = Array(repeating: GridItem(.fixed(cellWidth), spacing: columnSpacing), count: columnCount)
+        
+        return LazyVGrid(columns: folderColumns, spacing: rowSpacing) {
+            ForEach(0..<folder.apps.count, id: \.self) { idx in
+                let app = folder.apps[idx]
+                let isFocused = (focusedIndex == idx)
+                
+                InnerFolderAppCell(
+                    app: app,
+                    iconSize: iconSize,
+                    isFocused: isFocused,
+                    onLaunch: { onLaunchApp(app) },
+                    onRemove: { onRemoveApp(app) }
+                )
+            }
+        }
+    }
+    
+    private var panelBackground: some View {
+        RoundedRectangle(cornerRadius: 28, style: .continuous)
+            .fill(Color.black.opacity(0.25))
+            .background(
+                VisualEffectView()
+                    .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 28, style: .continuous)
+                    .stroke(Color.white.opacity(0.15), lineWidth: 1)
+            )
+    }
 }
 
 struct InnerFolderAppCell: View {
     let app: AppInfo
+    let iconSize: CGFloat
     let isFocused: Bool
     let onLaunch: () -> Void
     let onRemove: () -> Void
@@ -2251,7 +2284,7 @@ struct InnerFolderAppCell: View {
             VStack(spacing: 8) {
                 Image(nsImage: app.icon)
                     .resizable()
-                    .frame(width: 80, height: 80)
+                    .frame(width: iconSize, height: iconSize)
                     .scaleEffect(isHovered ? 1.08 : 1.0)
                     .shadow(color: isFocused ? Color.blue.opacity(0.5) : (isHovered ? .white.opacity(0.15) : .black.opacity(0.15)),
                             radius: isFocused ? 12 : (isHovered ? 10 : 4),
@@ -2270,8 +2303,9 @@ struct InnerFolderAppCell: View {
                     .font(.system(size: 12, weight: .medium))
                     .multilineTextAlignment(.center)
                     .lineLimit(1)
+                    .frame(height: 18)
             }
-            .frame(width: 90)
+            .frame(width: iconSize + 20)
         }
         .buttonStyle(.plain)
         .onHover { hover in
@@ -2448,196 +2482,31 @@ struct SettingsCardOverlayView: View {
     
     var body: some View {
         VStack(spacing: 0) {
-            // Segmented Picker Header
-            Picker("", selection: $selectedTab) {
-                Text("Layout & Grid").tag(0)
-                Text("Daemon & Settings").tag(1)
+            // Tab pills
+            HStack(spacing: 6) {
+                tabPill(tag: 0, title: "Layout", symbol: "square.grid.3x3")
+                tabPill(tag: 1, title: "Behavior", symbol: "gearshape")
             }
-            .pickerStyle(.segmented)
-            .padding(.horizontal, 16)
-            .padding(.top, 16)
+            .padding(.top, 14)
             .padding(.bottom, 12)
+            .frame(maxWidth: .infinity)
             
             Divider()
-                .background(Color.white.opacity(0.12))
+                .background(Color.white.opacity(0.1))
             
-            // Content
-            VStack {
+            // Content sizes to each tab naturally; the card animates between heights
+            Group {
                 if selectedTab == 0 {
-                    // Layout Settings Tab
-                    VStack(alignment: .leading, spacing: 14) {
-                        HStack {
-                            Text("Grid Columns:")
-                                .font(.system(size: 13, weight: .medium))
-                                .foregroundColor(.white.opacity(0.85))
-                            Spacer()
-                            Stepper(value: $columnsCount, in: 4...10) {
-                                Text("\(columnsCount)")
-                                    .font(.system(size: 13, weight: .bold))
-                                    .foregroundColor(.white)
-                                    .frame(width: 24, alignment: .center)
-                            }
-                        }
-                        
-                        HStack {
-                            Text("Grid Rows:")
-                                .font(.system(size: 13, weight: .medium))
-                                .foregroundColor(.white.opacity(0.85))
-                            Spacer()
-                            Stepper(value: $rowsCount, in: 3...7) {
-                                Text("\(rowsCount)")
-                                    .font(.system(size: 13, weight: .bold))
-                                    .foregroundColor(.white)
-                                    .frame(width: 24, alignment: .center)
-                            }
-                        }
-                        
-                        VStack(alignment: .leading, spacing: 6) {
-                            HStack {
-                                Text("App Icon Size:")
-                                    .font(.system(size: 13, weight: .medium))
-                                    .foregroundColor(.white.opacity(0.85))
-                                Spacer()
-                                Text("\(Int(iconSizeSelection))pt")
-                                    .font(.system(size: 13, weight: .bold))
-                                    .foregroundColor(.white)
-                            }
-                            
-                            HStack(spacing: 8) {
-                                Image(systemName: "app")
-                                    .font(.system(size: 10))
-                                    .foregroundColor(.white.opacity(0.5))
-                                Slider(value: $iconSizeSelection, in: 64...112, step: 8)
-                                    .accentColor(.blue)
-                                Image(systemName: "app")
-                                    .font(.system(size: 16))
-                                    .foregroundColor(.white.opacity(0.5))
-                            }
-                        }
-                        
-                        VStack(alignment: .leading, spacing: 6) {
-                            HStack {
-                                Text("Background Dim:")
-                                    .font(.system(size: 13, weight: .medium))
-                                    .foregroundColor(.white.opacity(0.85))
-                                Spacer()
-                                Text("\(Int(bgTintOpacity * 100))%")
-                                    .font(.system(size: 13, weight: .bold))
-                                    .foregroundColor(.white)
-                            }
-                            
-                            HStack(spacing: 8) {
-                                Image(systemName: "sun.max")
-                                    .font(.system(size: 11))
-                                    .foregroundColor(.white.opacity(0.5))
-                                Slider(value: $bgTintOpacity, in: 0...0.6, step: 0.05)
-                                    .accentColor(.blue)
-                                Image(systemName: "moon")
-                                    .font(.system(size: 11))
-                                    .foregroundColor(.white.opacity(0.5))
-                            }
-                        }
-                        
-                        Toggle("Show Icon Labels", isOn: $showLabels)
-                            .toggleStyle(.switch)
-                            .foregroundColor(.white.opacity(0.85))
-                            .font(.system(size: 13, weight: .medium))
-                        
-                        Toggle("Show Suggestions Row", isOn: $showSuggestions)
-                            .toggleStyle(.switch)
-                            .foregroundColor(.white.opacity(0.85))
-                            .font(.system(size: 13, weight: .medium))
-                            .help("Shows your most-used apps above the grid once you've launched a few.")
-                    }
-                    .padding(16)
-                    .transition(.opacity)
+                    layoutTab
                 } else {
-                    // Daemon Preferences Tab
-                    VStack(alignment: .leading, spacing: 12) {
-                        Toggle("Keep Running in Background", isOn: $persistentMode)
-                            .toggleStyle(.switch)
-                            .foregroundColor(.white.opacity(0.85))
-                            .font(.system(size: 13, weight: .medium))
-                            .help("Keeps Launchpad resident in the background, allowing it to be toggled instantly with the global hotkey.")
-                        
-                        if persistentMode {
-                            VStack(alignment: .leading, spacing: 10) {
-                                Toggle("Show Dock Icon", isOn: $showDockIcon)
-                                    .toggleStyle(.switch)
-                                    .foregroundColor(.white.opacity(0.75))
-                                    .font(.system(size: 12))
-                                
-                                Toggle("Show Menu Bar Icon", isOn: $showMenuBarIcon)
-                                    .toggleStyle(.switch)
-                                    .foregroundColor(.white.opacity(0.75))
-                                    .font(.system(size: 12))
-                            }
-                            .padding(.leading, 18)
-                            .transition(.move(edge: .top).combined(with: .opacity))
-                        }
-                        
-                        Toggle("Launch at Login", isOn: $launchAtLogin)
-                            .toggleStyle(.switch)
-                            .foregroundColor(.white.opacity(0.85))
-                            .font(.system(size: 13, weight: .medium))
-                            .help("Registers Launchpad Classic as a login item so the hotkey works right after startup.")
-                        
-                        Divider()
-                            .background(Color.white.opacity(0.12))
-                        
-                        HotkeyRecorderRow()
-                        
-                        Toggle("Trackpad Pinch to Open & Close", isOn: $pinchGestures)
-                            .toggleStyle(.switch)
-                            .foregroundColor(.white.opacity(0.85))
-                            .font(.system(size: 13, weight: .medium))
-                            .help("Pinch in with thumb and three fingers to open Launchpad; spread them apart to close — just like classic macOS.")
-                            .disabled(!TrackpadGestureManager.isSupported)
-                        
-                        if !TrackpadGestureManager.isSupported {
-                            Text("No multitouch trackpad detected")
-                                .font(.system(size: 11))
-                                .foregroundColor(.white.opacity(0.45))
-                                .padding(.leading, 2)
-                        }
-                        
-                        Divider()
-                            .background(Color.white.opacity(0.12))
-                        
-                        HStack(spacing: 8) {
-                            Button(action: checkForUpdates) {
-                                Text(isCheckingForUpdates ? "Checking..." : "Check for Updates")
-                                    .font(.system(size: 11, weight: .semibold))
-                            }
-                            .buttonStyle(SettingsOverlayButtonStyle(isDefault: false))
-                            .disabled(isCheckingForUpdates)
-                            
-                            Spacer()
-                            
-                            if let status = updateStatus {
-                                Text(status)
-                                    .font(.system(size: 11))
-                                    .foregroundColor(.white.opacity(0.7))
-                                    .lineLimit(1)
-                            }
-                            
-                            if let url = availableUpdateURL {
-                                Button("View") {
-                                    NSWorkspace.shared.open(url)
-                                }
-                                .buttonStyle(SettingsOverlayButtonStyle(isDefault: true))
-                            }
-                        }
-                    }
-                    .padding(16)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .transition(.opacity)
+                    behaviorTab
                 }
             }
-            .frame(height: 300) // Fixed height for content to prevent card resizing
+            .padding(18)
+            .frame(maxWidth: .infinity, alignment: .leading)
             
             Divider()
-                .background(Color.white.opacity(0.12))
+                .background(Color.white.opacity(0.1))
             
             // Footer Actions
             HStack(spacing: 12) {
@@ -2664,20 +2533,222 @@ struct SettingsCardOverlayView: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
         }
-        .frame(width: 320)
+        .frame(width: 380)
         .background(
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .fill(Color.black.opacity(0.55))
+            // Same glass recipe as the folder panel so overlays feel related
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .fill(Color.black.opacity(0.3))
                 .background(
                     VisualEffectView()
-                        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+                        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
                 )
                 .overlay(
-                    RoundedRectangle(cornerRadius: 20, style: .continuous)
-                        .stroke(Color.white.opacity(0.12), lineWidth: 1)
+                    RoundedRectangle(cornerRadius: 24, style: .continuous)
+                        .stroke(Color.white.opacity(0.15), lineWidth: 1)
                 )
         )
-        .shadow(color: Color.black.opacity(0.35), radius: 18, x: 0, y: 10)
+        .shadow(color: Color.black.opacity(0.4), radius: 30, x: 0, y: 15)
+        .animation(.spring(response: 0.35, dampingFraction: 0.85), value: selectedTab)
+        .animation(.spring(response: 0.35, dampingFraction: 0.85), value: persistentMode)
+    }
+    
+    // MARK: - Tabs
+    
+    private var layoutTab: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            sectionHeader("Grid")
+            
+            HStack {
+                Text("Columns")
+                    .font(.system(size: 13))
+                    .foregroundColor(.white.opacity(0.85))
+                Spacer()
+                Stepper(value: $columnsCount, in: 4...10) {
+                    Text("\(columnsCount)")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(.white)
+                        .frame(width: 24, alignment: .center)
+                }
+                .controlSize(.small)
+            }
+            
+            HStack {
+                Text("Rows")
+                    .font(.system(size: 13))
+                    .foregroundColor(.white.opacity(0.85))
+                Spacer()
+                Stepper(value: $rowsCount, in: 3...7) {
+                    Text("\(rowsCount)")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(.white)
+                        .frame(width: 24, alignment: .center)
+                }
+                .controlSize(.small)
+            }
+            
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Text("Icon Size")
+                        .font(.system(size: 13))
+                        .foregroundColor(.white.opacity(0.85))
+                    Spacer()
+                    Text("\(Int(iconSizeSelection)) pt")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(.white.opacity(0.7))
+                }
+                
+                HStack(spacing: 8) {
+                    Image(systemName: "app")
+                        .font(.system(size: 10))
+                        .foregroundColor(.white.opacity(0.5))
+                    Slider(value: $iconSizeSelection, in: 64...112, step: 8)
+                        .controlSize(.small)
+                        .tint(.blue)
+                    Image(systemName: "app")
+                        .font(.system(size: 16))
+                        .foregroundColor(.white.opacity(0.5))
+                }
+            }
+            
+            sectionHeader("Appearance")
+                .padding(.top, 8)
+            
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Text("Background Dim")
+                        .font(.system(size: 13))
+                        .foregroundColor(.white.opacity(0.85))
+                    Spacer()
+                    Text("\(Int(bgTintOpacity * 100))%")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(.white.opacity(0.7))
+                }
+                
+                HStack(spacing: 8) {
+                    Image(systemName: "sun.max")
+                        .font(.system(size: 11))
+                        .foregroundColor(.white.opacity(0.5))
+                    Slider(value: $bgTintOpacity, in: 0...0.6, step: 0.05)
+                        .controlSize(.small)
+                        .tint(.blue)
+                    Image(systemName: "moon")
+                        .font(.system(size: 11))
+                        .foregroundColor(.white.opacity(0.5))
+                }
+            }
+            
+            settingToggle("Show Icon Labels", isOn: $showLabels)
+            
+            settingToggle("Show Suggestions Row", isOn: $showSuggestions)
+                .help("Shows your most-used apps above the grid once you've launched a few.")
+        }
+        .transition(.opacity)
+    }
+    
+    private var behaviorTab: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            sectionHeader("General")
+            
+            settingToggle("Keep Running in Background", isOn: $persistentMode)
+                .help("Keeps Launchpad resident in the background, allowing it to be toggled instantly with the global hotkey.")
+            
+            if persistentMode {
+                VStack(alignment: .leading, spacing: 10) {
+                    settingToggle("Show Dock Icon", isOn: $showDockIcon, subdued: true)
+                    settingToggle("Show Menu Bar Icon", isOn: $showMenuBarIcon, subdued: true)
+                }
+                .padding(.leading, 18)
+                .transition(.move(edge: .top).combined(with: .opacity))
+            }
+            
+            settingToggle("Launch at Login", isOn: $launchAtLogin)
+                .help("Registers Launchpad Classic as a login item so the hotkey works right after startup.")
+            
+            sectionHeader("Shortcuts")
+                .padding(.top, 8)
+            
+            HotkeyRecorderRow()
+            
+            settingToggle("Trackpad Pinch to Open & Close", isOn: $pinchGestures)
+                .help("Pinch in with thumb and three fingers to open Launchpad; spread them apart to close — just like classic macOS.")
+                .disabled(!TrackpadGestureManager.isSupported)
+            
+            if !TrackpadGestureManager.isSupported {
+                Text("No multitouch trackpad detected")
+                    .font(.system(size: 11))
+                    .foregroundColor(.white.opacity(0.45))
+                    .padding(.leading, 2)
+            }
+            
+            sectionHeader("Updates")
+                .padding(.top, 8)
+            
+            HStack(spacing: 8) {
+                Button(action: checkForUpdates) {
+                    Text(isCheckingForUpdates ? "Checking..." : "Check for Updates")
+                        .font(.system(size: 11, weight: .semibold))
+                }
+                .buttonStyle(SettingsOverlayButtonStyle(isDefault: false))
+                .disabled(isCheckingForUpdates)
+                
+                Spacer()
+                
+                if let status = updateStatus {
+                    Text(status)
+                        .font(.system(size: 11))
+                        .foregroundColor(.white.opacity(0.7))
+                        .lineLimit(1)
+                }
+                
+                if let url = availableUpdateURL {
+                    Button("View") {
+                        NSWorkspace.shared.open(url)
+                    }
+                    .buttonStyle(SettingsOverlayButtonStyle(isDefault: true))
+                }
+            }
+        }
+        .transition(.opacity)
+    }
+    
+    // MARK: - Building blocks
+    
+    private func tabPill(tag: Int, title: String, symbol: String) -> some View {
+        Button {
+            selectedTab = tag
+        } label: {
+            HStack(spacing: 5) {
+                Image(systemName: symbol)
+                    .font(.system(size: 11, weight: .medium))
+                Text(title)
+                    .font(.system(size: 12, weight: .semibold))
+            }
+            .foregroundColor(selectedTab == tag ? .white : .white.opacity(0.55))
+            .padding(.vertical, 6)
+            .padding(.horizontal, 14)
+            .background(
+                Capsule()
+                    .fill(Color.white.opacity(selectedTab == tag ? 0.16 : 0))
+            )
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+    }
+    
+    private func sectionHeader(_ title: String) -> some View {
+        Text(title.uppercased())
+            .font(.system(size: 10.5, weight: .semibold))
+            .tracking(0.8)
+            .foregroundColor(.white.opacity(0.4))
+    }
+    
+    private func settingToggle(_ title: String, isOn: Binding<Bool>, subdued: Bool = false) -> some View {
+        Toggle(title, isOn: isOn)
+            .toggleStyle(.switch)
+            .controlSize(.small)
+            .tint(.blue)
+            .foregroundColor(.white.opacity(subdued ? 0.75 : 0.85))
+            .font(.system(size: subdued ? 12 : 13))
     }
     
     // MARK: - Update Check
@@ -2729,8 +2800,8 @@ struct HotkeyRecorderRow: View {
     
     var body: some View {
         HStack(spacing: 8) {
-            Text("Global Hotkey:")
-                .font(.system(size: 13, weight: .medium))
+            Text("Global Hotkey")
+                .font(.system(size: 13))
                 .foregroundColor(.white.opacity(0.85))
             
             Spacer()

@@ -13,19 +13,9 @@ Launchpad_Classic.zip
 # Temporary build logs and signs
 /tmp/
 
-# .NET Build Artifacts
-bin/
-obj/
-*.user
-*.userosscache
-*.sln.docstates
-
-# Visual Studio / Rider / VS Code
-.vs/
+# IDE / editor directories
 .idea/
 .vscode/
-*.sln.dotSettings
-*.suo
 
 # Agent work directories
 .agents/
