@@ -1,6 +1,7 @@
 import SwiftUI
 import Cocoa
 import UniformTypeIdentifiers
+import ServiceManagement
 
 struct LaunchpadView: View {
     // MARK: - State Variables
@@ -25,6 +26,7 @@ struct LaunchpadView: View {
     @AppStorage("LaunchpadPersistentMode") private var persistentMode: Bool = true
     @AppStorage("LaunchpadShowDockIcon") private var showDockIcon: Bool = true
     @AppStorage("LaunchpadShowMenuBarIcon") private var showMenuBarIcon: Bool = true
+    @AppStorage("LaunchpadLaunchAtLogin") private var launchAtLogin: Bool = false
     
     @Namespace private var searchNamespace
     
@@ -33,12 +35,19 @@ struct LaunchpadView: View {
     @AppStorage("LaunchpadRows") private var rowsCount: Int = 5
     @AppStorage("LaunchpadIconSize") private var iconSizeSelection: Double = 80.0
     private var appsPerPage: Int { columnsCount * rowsCount }
-    @State private var bgTintOpacity: Double = 0.15
+    @AppStorage("LaunchpadBgTintOpacity") private var bgTintOpacity: Double = 0.15
+    @AppStorage("LaunchpadShowLabels") private var showLabels: Bool = true
+    @AppStorage("LaunchpadShowSuggestions") private var showSuggestions: Bool = true
     @State private var isShowingSettings = false
     @State private var selectedSettingsTab = 0
     
     @State private var isSearchActive = false
     @State private var hoveredMergeTarget: LaunchpadItem? = nil
+    
+    // Get Info panel + drag-to-edge page flipping
+    @State private var infoApp: AppInfo? = nil
+    @State private var edgeFlipTimer: Timer? = nil
+    @State private var lastEdgeFlipTime: Date = .distantPast
     
     var body: some View {
         GeometryReader { geometry in
@@ -50,8 +59,14 @@ struct LaunchpadView: View {
             let rawRowSpacing: CGFloat = isSmallScreen ? 22 : 32
             let rawColumnSpacing: CGFloat = isSmallScreen ? 44 : 52
             
+            // Suggestions row (most-used apps), shown above the grid when idle
+            let suggestedApps = (showSuggestions && searchQuery.isEmpty && !isLoading)
+                ? AppScanner.suggestedApps(from: allApps, limit: min(6, columnsCount))
+                : []
+            let suggestionsVisible = !suggestedApps.isEmpty
+            
             // Limit grid area to fit screen height and avoid overlapping search capsule
-            let maxGridHeight = screenHeight - 240
+            let maxGridHeight = screenHeight - 240 - (suggestionsVisible ? 96 : 0)
             let numerator = max(100.0, maxGridHeight - CGFloat(rowsCount) * 40)
             let denominator = max(1.0, CGFloat(rowsCount) * rawIconSize + CGFloat(rowsCount - 1) * rawRowSpacing)
             let scaleFactor = min(1.0, max(0.35, numerator / denominator))
@@ -79,6 +94,25 @@ struct LaunchpadView: View {
                         .frame(height: 60)
                     
                     Spacer()
+                    
+                    if suggestionsVisible {
+                        VStack(spacing: 8) {
+                            Text("SUGGESTIONS")
+                                .font(.system(size: 10, weight: .semibold))
+                                .tracking(1.4)
+                                .foregroundColor(.white.opacity(0.4))
+                            
+                            HStack(spacing: 30) {
+                                ForEach(suggestedApps) { app in
+                                    SuggestionCell(app: app, onLaunch: {
+                                        launchAppAction(app)
+                                    })
+                                }
+                            }
+                        }
+                        .padding(.bottom, 22)
+                        .transition(.opacity.combined(with: .move(edge: .top)))
+                    }
                     
                     Group {
                         if isLoading {
@@ -114,7 +148,9 @@ struct LaunchpadView: View {
                                             onMoveToFolder: moveAppToFolderAction,
                                             onRemoveFromFolder: removeAppFromFolderAction,
                                             onCreateFolder: createFolderWithAppAction,
-                                            onMerge: mergeItemsAction
+                                            onMerge: mergeItemsAction,
+                                            onShowInfo: showAppInfoAction,
+                                            onMoveToTrash: moveAppToTrashAction
                                         )
                                         .frame(width: screenWidth)
                                     } else {
@@ -166,10 +202,8 @@ struct LaunchpadView: View {
                         .transition(.opacity)
                         
                     } else {
-                        // Filtered Search Results Grid
-                        let filteredApps = allApps.filter {
-                            $0.name.lowercased().contains(searchQuery.lowercased())
-                        }
+                        // Filtered Search Results Grid (fuzzy match, frecency-ranked)
+                        let filteredApps = AppScanner.rankedSearch(query: searchQuery, apps: allApps)
                         
                         let math = mathResult
                         let cmd = matchedSystemCommand
@@ -238,7 +272,9 @@ struct LaunchpadView: View {
                                         onMoveToFolder: moveAppToFolderAction,
                                         onRemoveFromFolder: removeAppFromFolderAction,
                                         onCreateFolder: createFolderWithAppAction,
-                                        onMerge: mergeItemsAction
+                                        onMerge: mergeItemsAction,
+                                        onShowInfo: showAppInfoAction,
+                                        onMoveToTrash: moveAppToTrashAction
                                     )
                                 }
                                 .frame(width: screenWidth, height: gridHeight + 10 - (hasQuickAction ? 100 : 0))
@@ -358,11 +394,10 @@ struct LaunchpadView: View {
                     .padding(.bottom, 24)
                 }
                 .frame(width: screenWidth)
+                .animation(.spring(response: 0.45, dampingFraction: 0.82), value: suggestionsVisible)
                 .opacity(isAnimatingOut ? 0 : (isAnimatingIn ? (expandedFolder != nil ? 0.35 : 1.0) : 0.0))
                 .scaleEffect(isAnimatingOut ? 0.92 : (isAnimatingIn ? (expandedFolder != nil ? 0.96 : 1.0) : 0.95))
                 .blur(radius: expandedFolder != nil ? 10 : 0)
-                
-                // Edit Mode control buttons at top center
                 
                 // Folder Expanded Overlay
                 if let folder = expandedFolder {
@@ -405,9 +440,13 @@ struct LaunchpadView: View {
                         columnsCount: $columnsCount,
                         rowsCount: $rowsCount,
                         iconSizeSelection: $iconSizeSelection,
+                        bgTintOpacity: $bgTintOpacity,
+                        showLabels: $showLabels,
+                        showSuggestions: $showSuggestions,
                         persistentMode: $persistentMode,
                         showDockIcon: $showDockIcon,
                         showMenuBarIcon: $showMenuBarIcon,
+                        launchAtLogin: $launchAtLogin,
                         selectedTab: $selectedSettingsTab,
                         onAutoCategorize: autoCategorizeAction,
                         onResetAll: resetLayoutAction,
@@ -419,6 +458,24 @@ struct LaunchpadView: View {
                     )
                     .transition(.move(edge: .bottom).combined(with: .opacity).combined(with: .scale(scale: 0.95)))
                     .padding(.bottom, 110)
+                }
+                
+                // App "Get Info" panel
+                if let app = infoApp {
+                    Color.black.opacity(0.35)
+                        .edgesIgnoringSafeArea(.all)
+                        .onTapGesture {
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                                infoApp = nil
+                            }
+                        }
+                    
+                    AppInfoCardView(app: app, onClose: {
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                            infoApp = nil
+                        }
+                    })
+                    .transition(.opacity.combined(with: .scale(scale: 0.95)))
                 }
             }
             .frame(width: screenWidth, height: screenHeight)
@@ -465,6 +522,15 @@ struct LaunchpadView: View {
             .onAppear {
                 loadLaunchpadData()
                 
+                // Reflect the actual login-item state (it can be changed from
+                // System Settings behind our back)
+                if #available(macOS 13.0, *) {
+                    let actuallyEnabled = SMAppService.mainApp.status == .enabled
+                    if launchAtLogin != actuallyEnabled {
+                        launchAtLogin = actuallyEnabled
+                    }
+                }
+                
                 // Animate zoom-in entry
                 withAnimation(.spring(response: 0.45, dampingFraction: 0.82)) {
                     isAnimatingIn = true
@@ -481,6 +547,7 @@ struct LaunchpadView: View {
                     NSEvent.removeMonitor(monitor)
                     scrollMonitor = nil
                 }
+                stopEdgeMonitor()
             }
             // Keyboard event hooks
             .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("LaunchpadKeyDown"))) { notification in
@@ -498,13 +565,37 @@ struct LaunchpadView: View {
                 }
             }
             .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("LaunchpadEscapePressed"))) { _ in
-                if !searchQuery.isEmpty || isSearchActive {
+                if infoApp != nil {
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                        infoApp = nil
+                    }
+                } else if !searchQuery.isEmpty || isSearchActive {
                     withAnimation(.spring(response: 0.35, dampingFraction: 0.82)) {
                         searchQuery = ""
                         isSearchActive = false
                     }
                 } else {
                     dismissLaunchpad()
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("LaunchpadAppsChanged"))) { _ in
+                // App installed/removed while running: rescan in the background
+                loadLaunchpadData()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("LaunchpadDismissRequested"))) { _ in
+                // Hotkey/menu-bar toggle: animate out before the window hides
+                dismissLaunchpad()
+            }
+            .onChange(of: launchAtLogin) { _, enabled in
+                applyLaunchAtLogin(enabled)
+            }
+            .onChange(of: draggedItem) { _, newValue in
+                // While an icon is being dragged, watch the mouse so hovering at
+                // a screen edge flips pages (like native Launchpad)
+                if newValue != nil && expandedFolder == nil && searchQuery.isEmpty {
+                    startEdgeMonitor()
+                } else {
+                    stopEdgeMonitor()
                 }
             }
             .onChange(of: isSearchActive) { oldActive, newActive in
@@ -717,7 +808,7 @@ struct LaunchpadView: View {
             return
         }
         
-        let filteredApps = allApps.filter { $0.name.lowercased().contains(searchQuery.lowercased()) }
+        let filteredApps = AppScanner.rankedSearch(query: searchQuery, apps: allApps)
         if let firstApp = filteredApps.first {
             launchAppAction(firstApp)
         }
@@ -916,6 +1007,146 @@ struct LaunchpadView: View {
         }
     }
     
+    // MARK: - Launch at Login
+    
+    private func applyLaunchAtLogin(_ enabled: Bool) {
+        guard #available(macOS 13.0, *) else { return }
+        do {
+            if enabled {
+                if SMAppService.mainApp.status != .enabled {
+                    try SMAppService.mainApp.register()
+                }
+            } else {
+                if SMAppService.mainApp.status == .enabled {
+                    try SMAppService.mainApp.unregister()
+                }
+            }
+        } catch {
+            print("Failed to update launch-at-login: \(error.localizedDescription)")
+        }
+    }
+    
+    // MARK: - Get Info & Move to Trash
+    
+    private func showAppInfoAction(_ app: AppInfo) {
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+            infoApp = app
+        }
+    }
+    
+    /// Presents an alert as a sheet attached to the launchpad window. The
+    /// overlay window sits at status-bar level, so a free-floating
+    /// `runModal()` alert would open underneath it; a sheet is always above
+    /// its parent. Also pauses the auto-hide-on-resign-key behavior.
+    private func presentAlertSheet(_ alert: NSAlert, completion: @escaping (NSApplication.ModalResponse) -> Void) {
+        NotificationCenter.default.post(name: NSNotification.Name("LaunchpadModalBegan"), object: nil)
+        let finish: (NSApplication.ModalResponse) -> Void = { response in
+            NotificationCenter.default.post(name: NSNotification.Name("LaunchpadModalEnded"), object: nil)
+            completion(response)
+        }
+        
+        guard let window = NSApp.windows.first(where: { $0 is LaunchpadWindow && $0.isVisible }) else {
+            finish(alert.runModal())
+            return
+        }
+        alert.beginSheetModal(for: window) { response in
+            finish(response)
+        }
+    }
+    
+    private func moveAppToTrashAction(_ app: AppInfo) {
+        guard !app.path.hasPrefix("/System/") else {
+            let alert = NSAlert()
+            alert.messageText = "\"\(app.name)\" can't be moved to the Trash"
+            alert.informativeText = "Built-in system applications are protected by macOS and cannot be deleted."
+            alert.alertStyle = .informational
+            presentAlertSheet(alert) { _ in }
+            return
+        }
+        
+        let alert = NSAlert()
+        alert.messageText = "Move \"\(app.name)\" to the Trash?"
+        alert.informativeText = "The application at \(app.path) will be moved to the Trash."
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Move to Trash")
+        alert.addButton(withTitle: "Cancel")
+        
+        presentAlertSheet(alert) { response in
+            guard response == .alertFirstButtonReturn else { return }
+            
+            NSWorkspace.shared.recycle([URL(fileURLWithPath: app.path)]) { _, error in
+                DispatchQueue.main.async {
+                    if let error = error {
+                        let failAlert = NSAlert()
+                        failAlert.messageText = "Couldn't move \"\(app.name)\" to the Trash"
+                        failAlert.informativeText = error.localizedDescription
+                        failAlert.alertStyle = .warning
+                        presentAlertSheet(failAlert) { _ in }
+                    } else {
+                        AppScanner.purgeApp(path: app.path)
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            refreshLayout()
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    // MARK: - Drag-to-Edge Page Flipping
+    
+    /// Polls the mouse position during an active icon drag. Drop-target
+    /// tracking can't be used here: views inserted mid-drag aren't registered
+    /// with the session, and default-mode timers pause while AppKit runs its
+    /// drag-tracking run loop, so the timer must run in `.common` modes.
+    private func startEdgeMonitor() {
+        stopEdgeMonitor()
+        lastEdgeFlipTime = .distantPast
+        let timer = Timer(timeInterval: 0.1, repeats: true) { _ in
+            checkEdgeHover()
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        edgeFlipTimer = timer
+    }
+    
+    private func stopEdgeMonitor() {
+        edgeFlipTimer?.invalidate()
+        edgeFlipTimer = nil
+    }
+    
+    private func checkEdgeHover() {
+        guard draggedItem != nil, expandedFolder == nil, searchQuery.isEmpty else {
+            stopEdgeMonitor()
+            return
+        }
+        guard let window = NSApp.windows.first(where: { $0 is LaunchpadWindow && $0.isVisible }) else { return }
+        
+        let mouseX = NSEvent.mouseLocation.x
+        let frame = window.frame
+        let edgeZone: CGFloat = 44
+        
+        // Throttle so hovering at the edge flips one page every 0.8s
+        guard Date().timeIntervalSince(lastEdgeFlipTime) >= 0.8 else { return }
+        
+        if mouseX <= frame.minX + edgeZone {
+            lastEdgeFlipTime = Date()
+            flipPage(-1)
+        } else if mouseX >= frame.maxX - edgeZone {
+            lastEdgeFlipTime = Date()
+            flipPage(1)
+        }
+    }
+    
+    private func flipPage(_ direction: Int) {
+        let pageCount = max(1, chunkedItems(items, size: appsPerPage).count)
+        let target = currentPage + direction
+        guard target >= 0 && target < pageCount else { return }
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.82)) {
+            currentPage = target
+            focusedIndex = nil
+        }
+    }
+    
     // MARK: - Keyboard Navigation
     
     private func handleKeyPress(keyCode: UInt16) {
@@ -928,7 +1159,7 @@ struct LaunchpadView: View {
         let pageItems: [LaunchpadItem]
         
         if isSearching {
-            let filtered = allApps.filter { $0.name.lowercased().contains(searchQuery.lowercased()) }
+            let filtered = AppScanner.rankedSearch(query: searchQuery, apps: allApps)
             pageItems = filtered.map { .app($0) }
         } else {
             let pages = chunkedItems(items, size: appsPerPage)
@@ -1465,6 +1696,8 @@ struct ItemGridView: View {
     let onRemoveFromFolder: (AppInfo) -> Void
     let onCreateFolder: (AppInfo) -> Void
     let onMerge: (LaunchpadItem, LaunchpadItem) -> Void
+    let onShowInfo: (AppInfo) -> Void
+    let onMoveToTrash: (AppInfo) -> Void
     
     var body: some View {
         // Use fixed column widths to match native macOS layout precisely
@@ -1488,7 +1721,9 @@ struct ItemGridView: View {
                             onHide: { onHide(app) },
                             onRemoveFromFolder: { onRemoveFromFolder(app) },
                             onCreateFolder: { onCreateFolder(app) },
-                            onMoveToFolder: { folder in onMoveToFolder(app, folder) }
+                            onMoveToFolder: { folder in onMoveToFolder(app, folder) },
+                            onShowInfo: { onShowInfo(app) },
+                            onMoveToTrash: { onMoveToTrash(app) }
                         )
                     case .folder(let folder):
                         FolderIconCell(
@@ -1544,7 +1779,10 @@ struct AppIconCell: View {
     let onRemoveFromFolder: () -> Void
     let onCreateFolder: () -> Void
     let onMoveToFolder: (FolderData) -> Void
+    let onShowInfo: () -> Void
+    let onMoveToTrash: () -> Void
     
+    @AppStorage("LaunchpadShowLabels") private var showLabels: Bool = true
     @State private var isHovered = false
     
     var body: some View {
@@ -1571,7 +1809,7 @@ struct AppIconCell: View {
                     .animation(.spring(response: 0.25, dampingFraction: 0.7), value: isMergeTarget)
             }
             
-            // Application Label
+            // Application Label (kept in layout when hidden so grid math is stable)
             Text(app.name)
                 .foregroundColor(.white)
                 .font(.system(size: 12, weight: .medium))
@@ -1579,6 +1817,7 @@ struct AppIconCell: View {
                 .lineLimit(2)
                 .frame(height: 32, alignment: .top)
                 .shadow(color: .black.opacity(0.65), radius: 3, x: 0, y: 1.5)
+                .opacity(showLabels ? 1.0 : 0.0)
         }
         .frame(width: iconSize + 20)
         .contentShape(Rectangle())
@@ -1613,11 +1852,18 @@ struct AppIconCell: View {
                 }
             }
             Divider()
-            Button("Hide App") {
-                onHide()
+            Button("Get Info") {
+                onShowInfo()
             }
             Button("Show in Finder") {
                 NSWorkspace.shared.selectFile(app.path, inFileViewerRootedAtPath: "")
+            }
+            Divider()
+            Button("Hide App") {
+                onHide()
+            }
+            Button("Move to Trash") {
+                onMoveToTrash()
             }
         }
     }
@@ -1634,6 +1880,7 @@ struct FolderIconCell: View {
     let onDisband: () -> Void
     let onRename: (String) -> Void
     
+    @AppStorage("LaunchpadShowLabels") private var showLabels: Bool = true
     @State private var isHovered = false
     
     var body: some View {
@@ -1666,6 +1913,7 @@ struct FolderIconCell: View {
                 .lineLimit(2)
                 .frame(height: 32, alignment: .top)
                 .shadow(color: .black.opacity(0.65), radius: 3, x: 0, y: 1.5)
+                .opacity(showLabels ? 1.0 : 0.0)
         }
         .frame(width: iconSize + 20)
         .contentShape(Rectangle())
@@ -2175,14 +2423,22 @@ struct SettingsCardOverlayView: View {
     @Binding var columnsCount: Int
     @Binding var rowsCount: Int
     @Binding var iconSizeSelection: Double
+    @Binding var bgTintOpacity: Double
+    @Binding var showLabels: Bool
+    @Binding var showSuggestions: Bool
     @Binding var persistentMode: Bool
     @Binding var showDockIcon: Bool
     @Binding var showMenuBarIcon: Bool
+    @Binding var launchAtLogin: Bool
     @Binding var selectedTab: Int
     
     let onAutoCategorize: () -> Void
     let onResetAll: () -> Void
     let onClose: () -> Void
+    
+    @State private var isCheckingForUpdates = false
+    @State private var updateStatus: String? = nil
+    @State private var availableUpdateURL: URL? = nil
     
     var body: some View {
         VStack(spacing: 0) {
@@ -2252,6 +2508,40 @@ struct SettingsCardOverlayView: View {
                                     .foregroundColor(.white.opacity(0.5))
                             }
                         }
+                        
+                        VStack(alignment: .leading, spacing: 6) {
+                            HStack {
+                                Text("Background Dim:")
+                                    .font(.system(size: 13, weight: .medium))
+                                    .foregroundColor(.white.opacity(0.85))
+                                Spacer()
+                                Text("\(Int(bgTintOpacity * 100))%")
+                                    .font(.system(size: 13, weight: .bold))
+                                    .foregroundColor(.white)
+                            }
+                            
+                            HStack(spacing: 8) {
+                                Image(systemName: "sun.max")
+                                    .font(.system(size: 11))
+                                    .foregroundColor(.white.opacity(0.5))
+                                Slider(value: $bgTintOpacity, in: 0...0.6, step: 0.05)
+                                    .accentColor(.blue)
+                                Image(systemName: "moon")
+                                    .font(.system(size: 11))
+                                    .foregroundColor(.white.opacity(0.5))
+                            }
+                        }
+                        
+                        Toggle("Show Icon Labels", isOn: $showLabels)
+                            .toggleStyle(.switch)
+                            .foregroundColor(.white.opacity(0.85))
+                            .font(.system(size: 13, weight: .medium))
+                        
+                        Toggle("Show Suggestions Row", isOn: $showSuggestions)
+                            .toggleStyle(.switch)
+                            .foregroundColor(.white.opacity(0.85))
+                            .font(.system(size: 13, weight: .medium))
+                            .help("Shows your most-used apps above the grid once you've launched a few.")
                     }
                     .padding(16)
                     .transition(.opacity)
@@ -2279,13 +2569,52 @@ struct SettingsCardOverlayView: View {
                             .padding(.leading, 18)
                             .transition(.move(edge: .top).combined(with: .opacity))
                         }
+                        
+                        Toggle("Launch at Login", isOn: $launchAtLogin)
+                            .toggleStyle(.switch)
+                            .foregroundColor(.white.opacity(0.85))
+                            .font(.system(size: 13, weight: .medium))
+                            .help("Registers Launchpad Classic as a login item so the hotkey works right after startup.")
+                        
+                        Divider()
+                            .background(Color.white.opacity(0.12))
+                        
+                        HotkeyRecorderRow()
+                        
+                        Divider()
+                            .background(Color.white.opacity(0.12))
+                        
+                        HStack(spacing: 8) {
+                            Button(action: checkForUpdates) {
+                                Text(isCheckingForUpdates ? "Checking..." : "Check for Updates")
+                                    .font(.system(size: 11, weight: .semibold))
+                            }
+                            .buttonStyle(SettingsOverlayButtonStyle(isDefault: false))
+                            .disabled(isCheckingForUpdates)
+                            
+                            Spacer()
+                            
+                            if let status = updateStatus {
+                                Text(status)
+                                    .font(.system(size: 11))
+                                    .foregroundColor(.white.opacity(0.7))
+                                    .lineLimit(1)
+                            }
+                            
+                            if let url = availableUpdateURL {
+                                Button("View") {
+                                    NSWorkspace.shared.open(url)
+                                }
+                                .buttonStyle(SettingsOverlayButtonStyle(isDefault: true))
+                            }
+                        }
                     }
                     .padding(16)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .transition(.opacity)
                 }
             }
-            .frame(height: 140) // Fixed height for content to prevent card resizing
+            .frame(height: 268) // Fixed height for content to prevent card resizing
             
             Divider()
                 .background(Color.white.opacity(0.12))
@@ -2329,6 +2658,278 @@ struct SettingsCardOverlayView: View {
                 )
         )
         .shadow(color: Color.black.opacity(0.35), radius: 18, x: 0, y: 10)
+    }
+    
+    // MARK: - Update Check
+    
+    private func checkForUpdates() {
+        isCheckingForUpdates = true
+        updateStatus = nil
+        availableUpdateURL = nil
+        
+        guard let url = URL(string: "https://api.github.com/repos/rhysx1/Classic-Launchpad/releases/latest") else {
+            isCheckingForUpdates = false
+            updateStatus = "Could not check"
+            return
+        }
+        
+        URLSession.shared.dataTask(with: url) { data, _, _ in
+            var status = "Could not check for updates"
+            var updateURL: URL? = nil
+            
+            if let data = data,
+               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let tag = json["tag_name"] as? String {
+                let latest = tag.hasPrefix("v") ? String(tag.dropFirst()) : tag
+                let current = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
+                
+                if latest.compare(current, options: .numeric) == .orderedDescending {
+                    status = "v\(latest) is available"
+                    updateURL = URL(string: (json["html_url"] as? String) ?? "https://github.com/rhysx1/Classic-Launchpad/releases")
+                } else {
+                    status = "Up to date (v\(current))"
+                }
+            }
+            
+            DispatchQueue.main.async {
+                isCheckingForUpdates = false
+                updateStatus = status
+                availableUpdateURL = updateURL
+            }
+        }.resume()
+    }
+}
+
+// MARK: - Global Hotkey Recorder Row
+
+struct HotkeyRecorderRow: View {
+    @State private var isRecording = false
+    @State private var display: String = HotkeyPreference.load().display
+    @State private var keyMonitor: Any? = nil
+    
+    var body: some View {
+        HStack(spacing: 8) {
+            Text("Global Hotkey:")
+                .font(.system(size: 13, weight: .medium))
+                .foregroundColor(.white.opacity(0.85))
+            
+            Spacer()
+            
+            Button(action: toggleRecording) {
+                Text(isRecording ? "Press shortcut..." : display)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(isRecording ? .blue : .white)
+                    .frame(minWidth: 96)
+                    .padding(.vertical, 5)
+                    .padding(.horizontal, 10)
+                    .background(
+                        RoundedRectangle(cornerRadius: 7, style: .continuous)
+                            .fill(Color.white.opacity(isRecording ? 0.22 : 0.12))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                                    .stroke(isRecording ? Color.blue.opacity(0.8) : Color.white.opacity(0.1), lineWidth: 1)
+                            )
+                    )
+            }
+            .buttonStyle(.plain)
+            .help("Click, then press the new shortcut. It must include ⌘, ⌥ or ⌃. Esc cancels.")
+            
+            Button(action: resetToDefault) {
+                Image(systemName: "arrow.counterclockwise")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(.white.opacity(0.6))
+            }
+            .buttonStyle(.plain)
+            .help("Reset to ⌥ Space")
+        }
+        .onDisappear {
+            stopRecording()
+        }
+    }
+    
+    private func toggleRecording() {
+        if isRecording {
+            stopRecording()
+            return
+        }
+        
+        isRecording = true
+        NotificationCenter.default.post(name: NSNotification.Name("LaunchpadHotkeyRecordingBegan"), object: nil)
+        
+        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            if event.keyCode == 53 { // Esc cancels recording
+                stopRecording()
+                return nil
+            }
+            
+            // Require a real modifier so the global hotkey can't hijack plain typing
+            let flags = event.modifierFlags.intersection([.command, .option, .control])
+            guard !flags.isEmpty else {
+                NSSound.beep()
+                return nil
+            }
+            
+            let preference = HotkeyPreference.from(event: event)
+            preference.save()
+            display = preference.display
+            stopRecording()
+            
+            // Re-register the Carbon hotkey with the new combination
+            NotificationCenter.default.post(name: NSNotification.Name("LaunchpadSettingsChanged"), object: nil)
+            return nil
+        }
+    }
+    
+    private func stopRecording() {
+        if let monitor = keyMonitor {
+            NSEvent.removeMonitor(monitor)
+            keyMonitor = nil
+        }
+        if isRecording {
+            isRecording = false
+            NotificationCenter.default.post(name: NSNotification.Name("LaunchpadHotkeyRecordingEnded"), object: nil)
+        }
+    }
+    
+    private func resetToDefault() {
+        stopRecording()
+        HotkeyPreference.reset()
+        display = HotkeyPreference.default.display
+        NotificationCenter.default.post(name: NSNotification.Name("LaunchpadSettingsChanged"), object: nil)
+    }
+}
+
+// MARK: - Suggestions Row Cell
+
+struct SuggestionCell: View {
+    let app: AppInfo
+    let onLaunch: () -> Void
+    
+    @State private var isHovered = false
+    
+    var body: some View {
+        VStack(spacing: 5) {
+            Image(nsImage: app.icon)
+                .resizable()
+                .frame(width: 46, height: 46)
+                .scaleEffect(isHovered ? 1.12 : 1.0)
+                .shadow(color: isHovered ? .white.opacity(0.18) : .black.opacity(0.2),
+                        radius: isHovered ? 9 : 4, x: 0, y: 3)
+                .animation(.spring(response: 0.22, dampingFraction: 0.65), value: isHovered)
+            
+            Text(app.name)
+                .foregroundColor(.white.opacity(0.75))
+                .font(.system(size: 10, weight: .medium))
+                .lineLimit(1)
+                .frame(maxWidth: 70)
+                .shadow(color: .black.opacity(0.6), radius: 2, x: 0, y: 1)
+        }
+        .contentShape(Rectangle())
+        .onHover { hover in
+            isHovered = hover
+        }
+        .onTapGesture {
+            onLaunch()
+        }
+    }
+}
+
+// MARK: - App Get Info Card
+
+struct AppInfoCardView: View {
+    let app: AppInfo
+    let onClose: () -> Void
+    
+    var body: some View {
+        let bundle = Bundle(path: app.path)
+        let version = bundle?.infoDictionary?["CFBundleShortVersionString"] as? String
+        let build = bundle?.infoDictionary?["CFBundleVersion"] as? String
+        let bundleID = bundle?.bundleIdentifier
+        let category = AppScanner.getAppCategory(at: app.path)
+        let launchCount = AppScanner.getLaunchCount(path: app.path)
+        
+        VStack(spacing: 18) {
+            Image(nsImage: app.icon)
+                .resizable()
+                .frame(width: 96, height: 96)
+                .shadow(color: .black.opacity(0.35), radius: 12, x: 0, y: 6)
+            
+            VStack(spacing: 4) {
+                Text(app.name)
+                    .font(.system(size: 22, weight: .bold))
+                    .foregroundColor(.white)
+                
+                if let version = version {
+                    Text("Version \(version)" + (build.map { " (\($0))" } ?? ""))
+                        .font(.system(size: 12))
+                        .foregroundColor(.white.opacity(0.6))
+                }
+            }
+            
+            VStack(alignment: .leading, spacing: 8) {
+                InfoRow(label: "Category", value: category)
+                if let bundleID = bundleID {
+                    InfoRow(label: "Bundle ID", value: bundleID)
+                }
+                InfoRow(label: "Location", value: app.path)
+                InfoRow(label: "Opened from here", value: launchCount == 1 ? "1 time" : "\(launchCount) times")
+            }
+            .padding(14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(Color.white.opacity(0.06))
+            )
+            
+            HStack(spacing: 12) {
+                Button("Show in Finder") {
+                    NSWorkspace.shared.selectFile(app.path, inFileViewerRootedAtPath: "")
+                }
+                .buttonStyle(SettingsOverlayButtonStyle(isDefault: false))
+                
+                Button("Close", action: onClose)
+                    .buttonStyle(SettingsOverlayButtonStyle(isDefault: true))
+            }
+        }
+        .padding(28)
+        .frame(width: 420)
+        .background(
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .fill(Color.black.opacity(0.45))
+                .background(
+                    VisualEffectView()
+                        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 24, style: .continuous)
+                        .stroke(Color.white.opacity(0.14), lineWidth: 1)
+                )
+        )
+        .shadow(color: Color.black.opacity(0.4), radius: 26, x: 0, y: 14)
+        .onTapGesture {
+            // Absorb taps so the dim backdrop behind doesn't dismiss the card
+        }
+    }
+}
+
+struct InfoRow: View {
+    let label: String
+    let value: String
+    
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Text(label)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundColor(.white.opacity(0.5))
+                .frame(width: 110, alignment: .leading)
+            
+            Text(value)
+                .font(.system(size: 11))
+                .foregroundColor(.white.opacity(0.85))
+                .lineLimit(2)
+                .truncationMode(.middle)
+                .textSelection(.enabled)
+        }
     }
 }
 

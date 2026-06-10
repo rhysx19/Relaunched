@@ -1,0 +1,57 @@
+name: Build macOS
+
+on:
+  push:
+    branches: [main, mac-features]
+    tags: ['v*']
+    paths:
+      - '*.swift'
+      - 'Info.plist'
+      - 'build.sh'
+      - '.github/workflows/build-macos.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - '*.swift'
+      - 'Info.plist'
+      - 'build.sh'
+      - '.github/workflows/build-macos.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-macos:
+    name: Build app bundle
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build Launchpad Classic.app
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            export APP_VERSION="${GITHUB_REF_NAME#v}"
+          fi
+          ./build.sh
+
+      - name: Zip app bundle
+        run: zip -r -y "Launchpad-Classic-macOS.zip" "Launchpad Classic.app"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Launchpad-Classic-macOS
+          path: Launchpad-Classic-macOS.zip
+          retention-days: 30
+
+      - name: Publish GitHub release (tags only)
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" "Launchpad-Classic-macOS.zip" \
+            --title "Launchpad Classic $GITHUB_REF_NAME" \
+            --generate-notes

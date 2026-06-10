@@ -18,10 +18,11 @@ class HotkeyManager {
     
     init(onTrigger: @escaping () -> Void) {
         self.onTrigger = onTrigger
-        setupHotkey()
+        installHandler()
+        registerFromPreferences()
     }
     
-    private func setupHotkey() {
+    private func installHandler() {
         var eventType = EventTypeSpec()
         eventType.eventClass = OSType(kEventClassKeyboard)
         eventType.eventKind = OSType(kEventHotKeyPressed)
@@ -38,17 +39,23 @@ class HotkeyManager {
         let status = InstallEventHandler(GetApplicationEventTarget(), handler, 1, &eventType, selfPointer, &eventHandlerRef)
         if status != noErr {
             print("Failed to install application event handler: \(status)")
-            return
+        }
+    }
+    
+    /// (Re)registers the global hotkey from the user's saved preference
+    /// (default: Option + Space). Safe to call repeatedly.
+    func registerFromPreferences() {
+        if let ref = hotKeyRef {
+            UnregisterEventHotKey(ref)
+            hotKeyRef = nil
         }
         
-        // Register Option + Space (kVK_Space is 49 (0x31), optionKey is modifier)
-        let keyCode: UInt32 = 49
-        let modifiers: UInt32 = UInt32(optionKey)
+        let pref = HotkeyPreference.load()
         let hotKeyID = EventHotKeyID(signature: 0x4C485044, id: 1) // "LHPD"
         
         let registerStatus = RegisterEventHotKey(
-            keyCode,
-            modifiers,
+            UInt32(pref.keyCode),
+            pref.carbonModifiers,
             hotKeyID,
             GetApplicationEventTarget(),
             0,
@@ -56,7 +63,7 @@ class HotkeyManager {
         )
         
         if registerStatus != noErr {
-            print("Failed to register Event HotKey: \(registerStatus)")
+            print("Failed to register Event HotKey \(pref.display): \(registerStatus)")
         }
     }
     
@@ -75,6 +82,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     var isSearchActive = false
     var hotkeyManager: HotkeyManager?
     var statusItem: NSStatusItem?
+    var appDirectoryWatcher: AppDirectoryWatcher?
+    /// True while an in-app modal (e.g. Move to Trash confirmation) is the key
+    /// window, so losing key status doesn't auto-hide the launchpad.
+    var isModalActive = false
+    /// True while the settings hotkey recorder is capturing a shortcut; the
+    /// global key monitor passes events through untouched during recording.
+    var isHotkeyRecording = false
     
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Retrieve the screen containing the mouse cursor for multi-monitor support
@@ -108,6 +122,27 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             self?.applySettings()
         }
         
+        // Modal suppression (alerts shown by the view layer become key windows)
+        NotificationCenter.default.addObserver(forName: NSNotification.Name("LaunchpadModalBegan"), object: nil, queue: nil) { [weak self] _ in
+            self?.isModalActive = true
+        }
+        NotificationCenter.default.addObserver(forName: NSNotification.Name("LaunchpadModalEnded"), object: nil, queue: nil) { [weak self] _ in
+            self?.isModalActive = false
+        }
+        
+        // Hotkey recorder capture window
+        NotificationCenter.default.addObserver(forName: NSNotification.Name("LaunchpadHotkeyRecordingBegan"), object: nil, queue: nil) { [weak self] _ in
+            self?.isHotkeyRecording = true
+        }
+        NotificationCenter.default.addObserver(forName: NSNotification.Name("LaunchpadHotkeyRecordingEnded"), object: nil, queue: nil) { [weak self] _ in
+            self?.isHotkeyRecording = false
+        }
+        
+        // Watch application directories so newly installed/removed apps appear
+        // without relaunching the launchpad.
+        appDirectoryWatcher = AppDirectoryWatcher()
+        appDirectoryWatcher?.start()
+        
         // Create a custom borderless overlay window
         window = LaunchpadWindow(
             contentRect: screenFrame,
@@ -132,6 +167,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         // Add local keyboard listener for Escape and keyboard controls
         NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self = self else { return event }
+            
+            // While the hotkey recorder is capturing, let everything through
+            // so its own monitor can consume the shortcut.
+            if self.isHotkeyRecording {
+                return event
+            }
             
             if event.keyCode == 53 { // ESC
                 NotificationCenter.default.post(
@@ -194,10 +235,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 NSApp.setActivationPolicy(.regular)
             }
             
-            // 2. Hotkey Manager
+            // 2. Hotkey Manager (re-register so hotkey preference changes apply live)
             if persistentMode {
                 if self.hotkeyManager == nil {
                     self.hotkeyManager = HotkeyManager(onTrigger: { [weak self] in self?.toggleLaunchpad() })
+                } else {
+                    self.hotkeyManager?.registerFromPreferences()
                 }
             } else {
                 self.hotkeyManager = nil
@@ -259,7 +302,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     
     func toggleLaunchpad() {
         if window.isVisible {
-            hideLaunchpad()
+            // Ask the view to play its zoom-out animation first; it posts
+            // LaunchpadCloseRequested when finished, which hides the window.
+            NotificationCenter.default.post(name: NSNotification.Name("LaunchpadDismissRequested"), object: nil)
         } else {
             showLaunchpad()
         }
@@ -305,6 +350,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
     
     func windowDidResignKey(_ notification: Notification) {
+        // Don't auto-hide when an in-app modal (confirmation alert) took key status
+        guard !isModalActive else { return }
+        
         let persistentMode = UserDefaults.standard.object(forKey: "LaunchpadPersistentMode") as? Bool ?? true
         if persistentMode {
             hideLaunchpad()

@@ -33,6 +33,13 @@ swiftc -O \
 echo "Copying Info.plist..."
 cp Info.plist "$CONTENTS_DIR/Info.plist"
 
+# Optional version stamping for release builds (APP_VERSION=1.2 ./build.sh)
+if [ -n "${APP_VERSION:-}" ]; then
+    echo "Stamping version $APP_VERSION..."
+    /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $APP_VERSION" "$CONTENTS_DIR/Info.plist"
+    /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $APP_VERSION" "$CONTENTS_DIR/Info.plist"
+fi
+
 echo "Copying AppIcon.icns..."
 cp AppIcon.icns "$RESOURCES_DIR/AppIcon.icns"
 
@@ -47,8 +54,15 @@ cp -R "$APP_DIR" "$TMP_APP_DIR"
 echo "Cleaning extended attributes in /tmp..."
 xattr -cr "$TMP_APP_DIR"
 
-echo "Ad-hoc codesigning in /tmp..."
-codesign --force --deep --sign - "$TMP_APP_DIR"
+# Use a real Developer ID when provided (CODESIGN_IDENTITY="Developer ID Application: ..."),
+# otherwise fall back to ad-hoc signing for local builds.
+IDENTITY="${CODESIGN_IDENTITY:--}"
+if [ "$IDENTITY" = "-" ]; then
+    echo "Ad-hoc codesigning in /tmp..."
+else
+    echo "Codesigning with identity: $IDENTITY"
+fi
+codesign --force --deep --sign "$IDENTITY" "$TMP_APP_DIR"
 
 echo "Copying signed app back..."
 rm -rf "$APP_DIR"
