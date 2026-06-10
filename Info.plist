@@ -7,13 +7,13 @@
     <key>CFBundleDevelopmentRegion</key>
     <string>en</string>
     <key>CFBundleExecutable</key>
-    <string>Launchpad</string>
+    <string>Relaunched</string>
     <key>CFBundleIdentifier</key>
-    <string>com.rhys.MacOS-LaunchpadClassic</string>
+    <string>com.rhys.Relaunched</string>
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>CFBundleName</key>
-    <string>Launchpad Classic</string>
+    <string>Relaunched</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>

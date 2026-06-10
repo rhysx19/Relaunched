@@ -1,10 +1,10 @@
 #!/bin/bash
 set -e
 
-echo "=== Building Classic macOS Launchpad ==="
+echo "=== Building Relaunched ==="
 
 # Define target directories
-APP_DIR="Launchpad Classic.app"
+APP_DIR="Relaunched.app"
 CONTENTS_DIR="$APP_DIR/Contents"
 MACOS_DIR="$CONTENTS_DIR/MacOS"
 RESOURCES_DIR="$CONTENTS_DIR/Resources"
@@ -29,7 +29,7 @@ swiftc -O \
     TrackpadGestures.swift \
     LaunchpadView.swift \
     main.swift \
-    -o "$MACOS_DIR/Launchpad"
+    -o "$MACOS_DIR/Relaunched"
 
 echo "Copying Info.plist..."
 cp Info.plist "$CONTENTS_DIR/Info.plist"
@@ -45,10 +45,10 @@ echo "Copying AppIcon.icns..."
 cp AppIcon.icns "$RESOURCES_DIR/AppIcon.icns"
 
 echo "Setting permissions..."
-chmod +x "$MACOS_DIR/Launchpad"
+chmod +x "$MACOS_DIR/Relaunched"
 
 echo "Copying to /tmp to bypass iCloud Drive file provider restrictions for codesigning..."
-TMP_APP_DIR="/tmp/Launchpad_Classic_build.app"
+TMP_APP_DIR="/tmp/Relaunched_build.app"
 rm -rf "$TMP_APP_DIR"
 cp -R "$APP_DIR" "$TMP_APP_DIR"
 
@@ -74,4 +74,4 @@ echo "Verifying signature..."
 codesign --verify --verbose "$APP_DIR"
 
 echo "=== Build Successful! ==="
-echo "Launchpad Classic.app has been created at: $(pwd)/$APP_DIR"
+echo "Relaunched.app has been created at: $(pwd)/$APP_DIR"

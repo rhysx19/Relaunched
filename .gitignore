@@ -9,6 +9,7 @@ AppIcon.iconset/
 # Build products
 *.app/
 Launchpad_Classic.zip
+Relaunched-macOS.zip
 
 # Temporary build logs and signs
 /tmp/

@@ -2662,7 +2662,7 @@ struct SettingsCardOverlayView: View {
             }
             
             settingToggle("Launch at Login", isOn: $launchAtLogin)
-                .help("Registers Launchpad Classic as a login item so the hotkey works right after startup.")
+                .help("Registers Relaunched as a login item so the hotkey works right after startup.")
             
             sectionHeader("Shortcuts")
                 .padding(.top, 8)
@@ -2758,7 +2758,7 @@ struct SettingsCardOverlayView: View {
         updateStatus = nil
         availableUpdateURL = nil
         
-        guard let url = URL(string: "https://api.github.com/repos/rhysx1/Classic-Launchpad/releases/latest") else {
+        guard let url = URL(string: "https://api.github.com/repos/rhysx19/Relaunched/releases/latest") else {
             isCheckingForUpdates = false
             updateStatus = "Could not check"
             return
@@ -2776,7 +2776,7 @@ struct SettingsCardOverlayView: View {
                 
                 if latest.compare(current, options: .numeric) == .orderedDescending {
                     status = "v\(latest) is available"
-                    updateURL = URL(string: (json["html_url"] as? String) ?? "https://github.com/rhysx1/Classic-Launchpad/releases")
+                    updateURL = URL(string: (json["html_url"] as? String) ?? "https://github.com/rhysx19/Relaunched/releases")
                 } else {
                     status = "Up to date (v\(current))"
                 }

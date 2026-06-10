@@ -1,12 +1,14 @@
-# Classic Launchpad
+# Relaunched
 
-A lightweight, native, and highly customizable application launcher overlay for **macOS**. It brings back the clean, full-screen classic Launchpad experience, complete with elegant desktop backdrop blurs, animated paging grids, glassmorphic folder overlays, power-user math calculations, and full keyboard navigation.
+**The classic macOS Launchpad, brought back.**
+
+Relaunched is a lightweight, native, highly customizable full-screen app launcher for macOS — restoring the beloved classic Launchpad experience with elegant desktop backdrop blurs, animated paging grids, glassmorphic folders, trackpad pinch gestures, power-user math calculations, and full keyboard navigation.
 
 <p align="center">
-  <img src="AppIcon.icns" width="128" height="128" alt="Classic Launchpad Icon" />
+  <img src="AppIcon.icns" width="128" height="128" alt="Relaunched Icon" />
 </p>
 
-Built natively with **SwiftUI** & **AppKit** (targeting macOS 10.15+).
+Built natively with **SwiftUI** & **AppKit** (targeting macOS 10.15+). Free and open source under the MIT license.
 
 ---
 
@@ -15,17 +17,16 @@ Built natively with **SwiftUI** & **AppKit** (targeting macOS 10.15+).
 - 🚀 **Global Toggle & Keyboard Navigation**:
   - Global hotkey `Option + Space` (configurable in Settings).
   - Full keyboard controls: navigate cells using arrow keys (with selection halos), change pages using `Page Up / Down`, and press `Enter` to open apps/folders.
-- 🤏 **Trackpad Pinch Gestures**: pinch in with thumb + three fingers anywhere to open Launchpad, spread them apart to close — exactly like classic macOS. Reads raw trackpad touches (no Accessibility permission needed), so it never misfires on regular two-finger zooming. Toggleable in Settings.
+- 🤏 **Trackpad Pinch Gestures**: pinch in with thumb + three fingers anywhere to open Relaunched, spread them apart to close — exactly like classic macOS. Reads raw trackpad touches (no Accessibility permission needed), so it never misfires on regular two-finger zooming. Toggleable in Settings.
 - 🧠 **Smart Search & Suggestions**:
   - Fuzzy matching with initials support — type `vsc` to find Visual Studio Code.
   - Results ranked by how often and how recently you launch each app.
   - An optional Suggestions row surfaces your most-used apps above the grid.
 - 🔄 **Live App List**: watches `/Applications` (and friends) so newly installed or deleted apps appear without relaunching.
-- 📱 **Premium Glassmorphic Folders & Drag-to-Remove**:
-  - Drag apps onto each other to group them into folders with mini-grid previews.
-  - Opening a folder blurs, dims, and scales down the background apps grid.
-  - Change folder titles inline—commits automatically on `Enter` or clicking away.
-  - Drag an app out of the folder box onto the blurred background backdrop to remove and reflow the layout.
+- 📱 **Native-Feel Folders & Drag-to-Remove**:
+  - Drag apps onto each other to group them into folders with frosted mini-grid previews.
+  - Folder panels size to their contents, with the title floating above — click it to rename.
+  - Drag an app out of an open folder onto the backdrop to remove it and reflow the layout.
   - Drag an icon to the screen edge to flip between pages, just like native Launchpad.
 - 🛠 **App Management**: right-click any app for Get Info (version, bundle ID, location, usage), Show in Finder, Hide, or Move to Trash.
 - 📐 **Responsive Paginated Grids**:
@@ -59,20 +60,21 @@ Built natively with **SwiftUI** & **AppKit** (targeting macOS 10.15+).
 ## 🍎 Getting Started
 
 ### Install a Release Build
-Download `Launchpad-Classic-macOS.zip` from the [Releases page](https://github.com/rhysx19/Classic-Launchpad/releases), unzip, and drag `Launchpad Classic.app` into `/Applications`. Since release builds are ad-hoc signed, clear Gatekeeper once with:
+Download `Relaunched-macOS.zip` from the [Releases page](https://github.com/rhysx19/Relaunched/releases), unzip, and drag `Relaunched.app` into `/Applications`. Since release builds are ad-hoc signed, clear Gatekeeper once with:
 ```bash
-xattr -cr "/Applications/Launchpad Classic.app"
+xattr -cr "/Applications/Relaunched.app"
 ```
-A Homebrew cask template lives at `packaging/homebrew/launchpad-classic.rb` for tap-based installs.
+A Homebrew cask template lives at `packaging/homebrew/relaunched.rb` for tap-based installs.
 
 ### Prerequisites (building from source)
 - macOS 10.15 (Catalina) or later (macOS 13+ for the Launch at Login toggle).
 - Command-line build tools (install via `xcode-select --install`).
 
 ### Build & Run
-1. Open terminal and navigate to the project directory:
+1. Clone the repository and navigate into it:
    ```bash
-   cd MacOS_Launchpad
+   git clone https://github.com/rhysx19/Relaunched.git
+   cd Relaunched
    ```
 2. Build and sign the application bundle:
    ```bash
@@ -80,17 +82,17 @@ A Homebrew cask template lives at `packaging/homebrew/launchpad-classic.rb` for 
    ```
 3. Run the application:
    ```bash
-   open "Launchpad Classic.app"
+   open Relaunched.app
    ```
 
 ### Gatekeeper Workaround for Shared Bundles
 To share the built bundle with friends, compress it first to maintain attributes:
 ```bash
-zip -r -y Launchpad_Classic.zip "Launchpad Classic.app"
+zip -r -y Relaunched-macOS.zip Relaunched.app
 ```
 On their machine, they can clear Gatekeeper alerts using terminal:
 ```bash
-xattr -cr /path/to/Launchpad\ Classic.app
+xattr -cr /path/to/Relaunched.app
 ```
 
 ---

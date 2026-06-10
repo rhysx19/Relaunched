@@ -283,7 +283,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     func setupStatusItem() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let button = statusItem?.button {
-            button.image = NSImage(systemSymbolName: "rocket", accessibilityDescription: "Launchpad Classic")
+            button.image = NSImage(systemSymbolName: "rocket", accessibilityDescription: "Relaunched")
             button.target = self
             button.action = #selector(statusItemClicked)
             button.sendAction(on: [.leftMouseUp, .rightMouseUp])
@@ -294,10 +294,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let event = NSApp.currentEvent
         if event?.type == .rightMouseUp {
             let menu = NSMenu()
-            menu.addItem(NSMenuItem(title: "Open Launchpad Classic", action: #selector(openLaunchpadClicked), keyEquivalent: ""))
+            menu.addItem(NSMenuItem(title: "Open Relaunched", action: #selector(openLaunchpadClicked), keyEquivalent: ""))
             menu.addItem(NSMenuItem(title: "Settings...", action: #selector(settingsClicked), keyEquivalent: ","))
             menu.addItem(NSMenuItem.separator())
-            menu.addItem(NSMenuItem(title: "Quit Launchpad Classic", action: #selector(quitClicked), keyEquivalent: "q"))
+            menu.addItem(NSMenuItem(title: "Quit Relaunched", action: #selector(quitClicked), keyEquivalent: "q"))
             menu.popUp(positioning: nil, at: NSEvent.mouseLocation, in: nil)
         } else {
             toggleLaunchpad()
@@ -386,6 +386,24 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         NSApp.terminate(nil)
     }
 }
+
+/// One-time copy of preferences from the app's pre-rebrand bundle id
+/// ("Launchpad Classic") so upgrading doesn't reset layouts, folders,
+/// hotkeys, or launch stats. Every persisted key uses the "Launchpad" prefix.
+func migrateLegacyPreferencesIfNeeded() {
+    let defaults = UserDefaults.standard
+    guard !defaults.bool(forKey: "RelaunchedDidMigratePrefs") else { return }
+    defaults.set(true, forKey: "RelaunchedDidMigratePrefs")
+    
+    guard let legacy = defaults.persistentDomain(forName: "com.rhys.MacOS-LaunchpadClassic") else { return }
+    for (key, value) in legacy where key.hasPrefix("Launchpad") {
+        if defaults.object(forKey: key) == nil {
+            defaults.set(value, forKey: key)
+        }
+    }
+}
+
+migrateLegacyPreferencesIfNeeded()
 
 let app = NSApplication.shared
 let delegate = AppDelegate()

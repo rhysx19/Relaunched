@@ -2,7 +2,7 @@ name: Build macOS
 
 on:
   push:
-    branches: [main, mac-features]
+    branches: [main]
     tags: ['v*']
     paths:
       - '*.swift'
@@ -30,7 +30,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Build Launchpad Classic.app
+      - name: Build Relaunched.app
         run: |
           if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
             export APP_VERSION="${GITHUB_REF_NAME#v}"
@@ -38,13 +38,13 @@ jobs:
           ./build.sh
 
       - name: Zip app bundle
-        run: zip -r -y "Launchpad-Classic-macOS.zip" "Launchpad Classic.app"
+        run: zip -r -y "Relaunched-macOS.zip" "Relaunched.app"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Launchpad-Classic-macOS
-          path: Launchpad-Classic-macOS.zip
+          name: Relaunched-macOS
+          path: Relaunched-macOS.zip
           retention-days: 30
 
       - name: Publish GitHub release (tags only)
@@ -52,6 +52,6 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" "Launchpad-Classic-macOS.zip" \
-            --title "Launchpad Classic $GITHUB_REF_NAME" \
+          gh release create "$GITHUB_REF_NAME" "Relaunched-macOS.zip" \
+            --title "Relaunched $GITHUB_REF_NAME" \
             --generate-notes
