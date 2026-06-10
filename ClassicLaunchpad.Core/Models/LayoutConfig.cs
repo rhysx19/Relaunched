@@ -9,5 +9,12 @@ namespace ClassicLaunchpad.Core
         public int IconSize { get; set; } = 80;
         public List<string> PageOrder { get; set; } = new List<string>();
         public Dictionary<string, List<string>> Folders { get; set; } = new Dictionary<string, List<string>>();
+
+        /// <summary>
+        /// Folder id to user-visible display name. Configs saved before this
+        /// field existed simply deserialize to an empty map, in which case the
+        /// folder id is used as the name (previous behavior).
+        /// </summary>
+        public Dictionary<string, string> FolderNames { get; set; } = new Dictionary<string, string>();
     }
 }

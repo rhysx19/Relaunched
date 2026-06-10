@@ -53,20 +53,16 @@ namespace ClassicLaunchpad
         [DllImport("dwmapi.dll")]
         private static extern int DwmSetWindowAttribute(IntPtr hwnd, int dwAttribute, ref int pvAttribute, int cbAttribute);
 
-        [DllImport("user32.dll")]
-        private static extern int SetWindowCompositionAttribute(IntPtr hwnd, ref WindowCompositionAttributeData data);
-
         // Win32 Constants
         private const int SW_HIDE = 0;
         private const int SW_SHOW = 5;
         private const uint MONITOR_DEFAULTTONEAREST = 0x00000002;
         private const int DWMWA_TRANSITIONS_FORCEDISABLED = 3;
         private const int DWMWA_WINDOW_CORNER_PREFERENCE = 33;
-        private const int DWMWA_SYSTEMBACKDROP_TYPE = 38;
         private const int DWMWCP_DONOTROUND = 1;
-        private const int DWMSBT_TRANSIENTWINDOW = 3;
 
         private const uint MOD_ALT = 0x0001;
+        private const uint MOD_CONTROL = 0x0002;
         private const uint MOD_NOREPEAT = 0x4000;
         private const uint VK_SPACE = 0x20;
         private const uint WM_HOTKEY = 0x0312;
@@ -114,34 +110,6 @@ namespace ClassicLaunchpad
             public uint dwFlags;
         }
 
-        internal enum AccentState
-        {
-            ACCENT_DISABLED = 0,
-            ACCENT_ENABLE_ACRYLICBLURBEHIND = 4
-        }
-
-        [StructLayout(LayoutKind.Sequential)]
-        internal struct AccentPolicy
-        {
-            public AccentState AccentState;
-            public uint AccentFlags;
-            public uint GradientColor;
-            public uint AnimationId;
-        }
-
-        [StructLayout(LayoutKind.Sequential)]
-        internal struct WindowCompositionAttributeData
-        {
-            public WindowCompositionAttribute Attribute;
-            public IntPtr Data;
-            public IntPtr SizeOfData;
-        }
-
-        internal enum WindowCompositionAttribute
-        {
-            WCA_ACCENT_POLICY = 19
-        }
-
         #endregion
 
         private IntPtr _hwnd = IntPtr.Zero;
@@ -169,7 +137,7 @@ namespace ClassicLaunchpad
                 Application.Current.UnhandledException += OnAppUnhandledException;
             }
 
-            if (this.Resources.TryGetValue("CloseFolderStoryboard", out var closeStoryboardObj) && 
+            if (RootGrid.Resources.TryGetValue("CloseFolderStoryboard", out var closeStoryboardObj) && 
                 closeStoryboardObj is Microsoft.UI.Xaml.Media.Animation.Storyboard closeStoryboard)
             {
                 closeStoryboard.Completed += (s, e) =>
@@ -192,11 +160,13 @@ namespace ClassicLaunchpad
                 _subclassCallback = new SubclassProc(WindowSubclassCallback);
                 SetWindowSubclass(_hwnd, _subclassCallback, SUBCLASS_ID, IntPtr.Zero);
 
-                // Register global Alt + Space hotkey and check for failure
-                bool registered = RegisterHotKey(_hwnd, HOTKEY_ID, MOD_ALT | MOD_NOREPEAT, VK_SPACE);
+                // Register global Ctrl + Alt + Space hotkey and check for failure.
+                // (Plain Alt + Space is the standard Windows system-menu shortcut,
+                // so hijacking it globally would break every other app.)
+                bool registered = RegisterHotKey(_hwnd, HOTKEY_ID, MOD_CONTROL | MOD_ALT | MOD_NOREPEAT, VK_SPACE);
                 if (!registered)
                 {
-                    System.Diagnostics.Debug.WriteLine("Warning: Failed to register global hotkey (Alt + Space).");
+                    System.Diagnostics.Debug.WriteLine("Warning: Failed to register global hotkey (Ctrl + Alt + Space).");
                 }
             }
 
@@ -238,10 +208,22 @@ namespace ClassicLaunchpad
         {
             if (_viewModel == null) return;
 
-            // 1. Math visible
+            // 1. Math result or armed system action shown as a card
             if (_viewModel.IsMathVisible)
             {
+                MathResultGlyph.Text = "=";
                 MathResultText.Text = _viewModel.MathResult;
+                MathResultSubText.Text = "Calculation Result (Click to Copy)";
+                MathResultCard.Visibility = Visibility.Visible;
+                AppsFlipView.Visibility = Visibility.Collapsed;
+                PageDotsContainer.Visibility = Visibility.Collapsed;
+                return;
+            }
+            else if (_viewModel.PendingSystemAction != SystemActionType.None)
+            {
+                MathResultGlyph.Text = "\u23FB"; // power symbol
+                MathResultText.Text = GetSystemActionDisplayName(_viewModel.PendingSystemAction);
+                MathResultSubText.Text = "System Action (Press Enter to run)";
                 MathResultCard.Visibility = Visibility.Visible;
                 AppsFlipView.Visibility = Visibility.Collapsed;
                 PageDotsContainer.Visibility = Visibility.Collapsed;
@@ -264,7 +246,7 @@ namespace ClassicLaunchpad
                 {
                     _isFolderOverlayOpen = true;
                     FolderOverlay.Visibility = Visibility.Visible;
-                    if (this.Resources.TryGetValue("OpenFolderStoryboard", out var openStoryboardObj) && 
+                    if (RootGrid.Resources.TryGetValue("OpenFolderStoryboard", out var openStoryboardObj) && 
                         openStoryboardObj is Microsoft.UI.Xaml.Media.Animation.Storyboard openStoryboard)
                     {
                         openStoryboard.Begin();
@@ -276,7 +258,7 @@ namespace ClassicLaunchpad
                 if (_isFolderOverlayOpen)
                 {
                     _isFolderOverlayOpen = false;
-                    if (this.Resources.TryGetValue("CloseFolderStoryboard", out var closeStoryboardObj) && 
+                    if (RootGrid.Resources.TryGetValue("CloseFolderStoryboard", out var closeStoryboardObj) && 
                         closeStoryboardObj is Microsoft.UI.Xaml.Media.Animation.Storyboard closeStoryboard)
                     {
                         closeStoryboard.Begin();
@@ -434,11 +416,13 @@ namespace ClassicLaunchpad
             }
         }
 
-        private UIElement CreateAppCell(AppItem item, int pageIndex, int selectedIndex, double iconSize)
+        // Returns FrameworkElement (not UIElement): WinUI 3's Grid.SetRow/SetColumn
+        // attached-property setters require FrameworkElement arguments.
+        private FrameworkElement CreateAppCell(AppItem item, int pageIndex, int selectedIndex, double iconSize)
         {
             var button = new Button
             {
-                Style = (Style)this.Resources["LaunchpadButtonStyle"],
+                Style = (Style)RootGrid.Resources["LaunchpadButtonStyle"],
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center,
                 DataContext = item
@@ -565,11 +549,11 @@ namespace ClassicLaunchpad
             return button;
         }
 
-        private UIElement CreateFolderAppCell(AppItem app, int index, double iconSize)
+        private FrameworkElement CreateFolderAppCell(AppItem app, int index, double iconSize)
         {
             var button = new Button
             {
-                Style = (Style)this.Resources["LaunchpadButtonStyle"],
+                Style = (Style)RootGrid.Resources["LaunchpadButtonStyle"],
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center,
                 DataContext = app
@@ -695,6 +679,16 @@ namespace ClassicLaunchpad
             HideLaunchpad();
         }
 
+        private static string GetSystemActionDisplayName(SystemActionType action) => action switch
+        {
+            SystemActionType.Sleep => "Sleep",
+            SystemActionType.Shutdown => "Shut Down",
+            SystemActionType.Restart => "Restart",
+            SystemActionType.Lock => "Lock",
+            SystemActionType.EmptyTrash => "Empty Recycle Bin",
+            _ => string.Empty
+        };
+
         private void HandleViewModelAction()
         {
             if (_viewModel == null) return;
@@ -710,6 +704,9 @@ namespace ClassicLaunchpad
                 executor.Execute(_viewModel.ExecutedSystemAction);
                 HideLaunchpad();
             }
+
+            // One-shot results must not fire again on a later Enter/Escape press.
+            _viewModel.ClearActionResults();
 
             if (!_viewModel.IsVisible)
             {
@@ -731,7 +728,9 @@ namespace ClassicLaunchpad
             var key = e.Key;
             var focusedElement = FocusManager.GetFocusedElement(this.Content.XamlRoot);
             
-            if (focusedElement == FolderNameTextBox)
+            // FocusManager returns object; these are intentional identity checks
+            // (ReferenceEquals avoids CS0252 reference-comparison warnings).
+            if (ReferenceEquals(focusedElement, FolderNameTextBox))
             {
                 if (key == Windows.System.VirtualKey.Enter || key == Windows.System.VirtualKey.Escape)
                 {
@@ -748,7 +747,7 @@ namespace ClassicLaunchpad
                                  (key >= Windows.System.VirtualKey.NumberPad0 && key <= Windows.System.VirtualKey.NumberPad9) ||
                                  key == Windows.System.VirtualKey.Space;
 
-            if (isAlphaNumeric && focusedElement != SearchBox)
+            if (isAlphaNumeric && !ReferenceEquals(focusedElement, SearchBox))
             {
                 SearchBox.Focus(FocusState.Programmatic);
                 char? typedChar = null;
@@ -854,9 +853,11 @@ namespace ClassicLaunchpad
 
                 if (_viewModel.PendingSystemAction != SystemActionType.None)
                 {
-                    var executor = new SystemCommandExecutor();
-                    executor.Execute(_viewModel.PendingSystemAction);
-                    HideLaunchpad();
+                    // Route through the view model so execution follows the single
+                    // explicit-Enter path and the result is consumed exactly once.
+                    _viewModel.PressEnter();
+                    HandleViewModelAction();
+                    RefreshUI();
                     e.Handled = true;
                     return;
                 }
@@ -892,13 +893,22 @@ namespace ClassicLaunchpad
 
         private void MathResultCard_PointerPressed(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e)
         {
-            CopyMathResultToClipboard();
+            if (_viewModel != null && _viewModel.PendingSystemAction != SystemActionType.None)
+            {
+                _viewModel.PressEnter();
+                HandleViewModelAction();
+                RefreshUI();
+            }
+            else
+            {
+                CopyMathResultToClipboard();
+            }
             e.Handled = true;
         }
 
         private void FolderOverlay_PointerPressed(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e)
         {
-            if (e.OriginalSource == FolderOverlay && _viewModel != null)
+            if (ReferenceEquals(e.OriginalSource, FolderOverlay) && _viewModel != null)
             {
                 _viewModel.CloseFolderOverlay();
                 RefreshUI();
@@ -917,7 +927,8 @@ namespace ClassicLaunchpad
             {
                 CommitFolderRename();
                 e.Handled = true;
-                FolderNameTextBox.Focus(FocusState.Unfocused);
+                // Focus(FocusState.Unfocused) throws; move focus elsewhere instead.
+                SearchBox.Focus(FocusState.Programmatic);
             }
         }
 
@@ -972,39 +983,17 @@ namespace ClassicLaunchpad
 
         private void ApplyBackdrop()
         {
-            if (Environment.OSVersion.Version.Major >= 10)
+            // The raw DWM/SetWindowCompositionAttribute accent hack does not show
+            // through WinUI 3's opaque swapchain. The supported SystemBackdrop API
+            // composites acrylic behind the (semi-transparent) XAML content and
+            // falls back to a solid color when acrylic is unavailable.
+            try
             {
-                // Check if Windows 11 Build 22621+ (22H2)
-                if (Environment.OSVersion.Version.Build >= 22621)
-                {
-                    int backdropType = DWMSBT_TRANSIENTWINDOW;
-                    DwmSetWindowAttribute(_hwnd, DWMWA_SYSTEMBACKDROP_TYPE, ref backdropType, sizeof(int));
-                }
-                else
-                {
-                    var accent = new AccentPolicy
-                    {
-                        AccentState = AccentState.ACCENT_ENABLE_ACRYLICBLURBEHIND,
-                        GradientColor = 0x99000000
-                    };
-                    int accentStructSize = Marshal.SizeOf(accent);
-                    IntPtr accentPtr = Marshal.AllocHGlobal(accentStructSize);
-                    try
-                    {
-                        Marshal.StructureToPtr(accent, accentPtr, false);
-                        var data = new WindowCompositionAttributeData
-                        {
-                            Attribute = WindowCompositionAttribute.WCA_ACCENT_POLICY,
-                            SizeOfData = new IntPtr(accentStructSize),
-                            Data = accentPtr
-                        };
-                        SetWindowCompositionAttribute(_hwnd, ref data);
-                    }
-                    finally
-                    {
-                        Marshal.FreeHGlobal(accentPtr);
-                    }
-                }
+                this.SystemBackdrop = new DesktopAcrylicBackdrop();
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Failed to apply acrylic backdrop: {ex.Message}");
             }
         }
 
@@ -1046,6 +1035,13 @@ namespace ClassicLaunchpad
                 _appWindow.Hide();
             }
             ShowTaskbar();
+
+            // Reset search state (and any armed system action) so reopening the
+            // launchpad always starts from a clean slate, like macOS Launchpad.
+            if (SearchBox != null && !string.IsNullOrEmpty(SearchBox.Text))
+            {
+                SearchBox.Text = string.Empty;
+            }
         }
 
         private void ToggleLaunchpad()
@@ -1114,9 +1110,11 @@ namespace ClassicLaunchpad
 
         private IntPtr WindowSubclassCallback(IntPtr hWnd, uint uMsg, IntPtr wParam, IntPtr lParam, UIntPtr idSubclass, IntPtr dwRefData)
         {
+            // wParam.ToInt32() can throw OverflowException for large 64-bit values;
+            // mask through ToInt64() instead.
             if (uMsg == WM_HOTKEY)
             {
-                if (wParam.ToInt32() == HOTKEY_ID)
+                if (wParam.ToInt64() == HOTKEY_ID)
                 {
                     ToggleLaunchpad();
                     return IntPtr.Zero;
@@ -1124,7 +1122,7 @@ namespace ClassicLaunchpad
             }
             else if (uMsg == WM_ACTIVATE)
             {
-                int activationState = wParam.ToInt32() & 0xFFFF;
+                long activationState = wParam.ToInt64() & 0xFFFF;
                 if (activationState == WA_INACTIVE)
                 {
                     OnFocusLost();

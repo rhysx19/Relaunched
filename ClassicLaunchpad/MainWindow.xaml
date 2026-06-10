@@ -6,7 +6,13 @@
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     mc:Ignorable="d">
 
-    <Window.Resources>
+    <!-- WinUI 3's Window has no Resources property, so resources live on the root Grid. -->
+    <Grid x:Name="RootGrid">
+        <Grid.Background>
+            <SolidColorBrush Color="Black" Opacity="0.15"/>
+        </Grid.Background>
+
+        <Grid.Resources>
         <!-- Style for individual launchpad app button -->
         <Style x:Key="LaunchpadButtonStyle" TargetType="Button">
             <Setter Property="Background" Value="Transparent"/>
@@ -27,9 +33,11 @@
                                         <Storyboard>
                                             <DoubleAnimation Storyboard.TargetName="ContentScale"
                                                              Storyboard.TargetProperty="ScaleX"
+                                                             EnableDependentAnimation="True"
                                                              To="1.0" Duration="0:0:0.15"/>
                                             <DoubleAnimation Storyboard.TargetName="ContentScale"
                                                              Storyboard.TargetProperty="ScaleY"
+                                                             EnableDependentAnimation="True"
                                                              To="1.0" Duration="0:0:0.15"/>
                                         </Storyboard>
                                     </VisualState>
@@ -37,6 +45,7 @@
                                         <Storyboard>
                                             <DoubleAnimation Storyboard.TargetName="ContentScale"
                                                              Storyboard.TargetProperty="ScaleX"
+                                                             EnableDependentAnimation="True"
                                                              To="1.08" Duration="0:0:0.15">
                                                 <DoubleAnimation.EasingFunction>
                                                     <QuadraticEase EasingMode="EaseOut"/>
@@ -44,6 +53,7 @@
                                             </DoubleAnimation>
                                             <DoubleAnimation Storyboard.TargetName="ContentScale"
                                                              Storyboard.TargetProperty="ScaleY"
+                                                             EnableDependentAnimation="True"
                                                              To="1.08" Duration="0:0:0.15">
                                                 <DoubleAnimation.EasingFunction>
                                                     <QuadraticEase EasingMode="EaseOut"/>
@@ -55,9 +65,11 @@
                                         <Storyboard>
                                             <DoubleAnimation Storyboard.TargetName="ContentScale"
                                                              Storyboard.TargetProperty="ScaleX"
+                                                             EnableDependentAnimation="True"
                                                              To="0.95" Duration="0:0:0.08"/>
                                             <DoubleAnimation Storyboard.TargetName="ContentScale"
                                                              Storyboard.TargetProperty="ScaleY"
+                                                             EnableDependentAnimation="True"
                                                              To="0.95" Duration="0:0:0.08"/>
                                         </Storyboard>
                                     </VisualState>
@@ -90,6 +102,7 @@
             </DoubleAnimation>
             <DoubleAnimation Storyboard.TargetName="BackgroundScale"
                              Storyboard.TargetProperty="ScaleX"
+                             EnableDependentAnimation="True"
                              To="0.96" Duration="0:0:0.3">
                 <DoubleAnimation.EasingFunction>
                     <QuadraticEase EasingMode="EaseOut"/>
@@ -97,6 +110,7 @@
             </DoubleAnimation>
             <DoubleAnimation Storyboard.TargetName="BackgroundScale"
                              Storyboard.TargetProperty="ScaleY"
+                             EnableDependentAnimation="True"
                              To="0.96" Duration="0:0:0.3">
                 <DoubleAnimation.EasingFunction>
                     <QuadraticEase EasingMode="EaseOut"/>
@@ -121,6 +135,7 @@
             </DoubleAnimation>
             <DoubleAnimation Storyboard.TargetName="BackgroundScale"
                              Storyboard.TargetProperty="ScaleX"
+                             EnableDependentAnimation="True"
                              To="1.0" Duration="0:0:0.25">
                 <DoubleAnimation.EasingFunction>
                     <QuadraticEase EasingMode="EaseIn"/>
@@ -128,6 +143,7 @@
             </DoubleAnimation>
             <DoubleAnimation Storyboard.TargetName="BackgroundScale"
                              Storyboard.TargetProperty="ScaleY"
+                             EnableDependentAnimation="True"
                              To="1.0" Duration="0:0:0.25">
                 <DoubleAnimation.EasingFunction>
                     <QuadraticEase EasingMode="EaseIn"/>
@@ -141,12 +157,7 @@
                 </DoubleAnimation.EasingFunction>
             </DoubleAnimation>
         </Storyboard>
-    </Window.Resources>
-
-    <Grid x:Name="RootGrid" Background="Transparent">
-        <Grid.Background>
-            <SolidColorBrush Color="Black" Opacity="0.15"/>
-        </Grid.Background>
+        </Grid.Resources>
 
         <Grid.RowDefinitions>
             <RowDefinition Height="60"/>
@@ -285,12 +296,12 @@
                 </Grid.ColumnDefinitions>
 
                 <Border Background="#400A84FF" CornerRadius="12" Width="50" Height="50" Margin="0,0,16,0">
-                    <TextBlock Text="=" Foreground="White" FontSize="28" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    <TextBlock x:Name="MathResultGlyph" Text="=" Foreground="White" FontSize="28" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                 </Border>
 
                 <StackPanel Grid.Column="1" VerticalAlignment="Center">
                     <TextBlock x:Name="MathResultText" Text="Result" Foreground="White" FontSize="20" FontWeight="SemiBold"/>
-                    <TextBlock Text="Calculation Result (Click to Copy)" Foreground="#AAFFFFFF" FontSize="13"/>
+                    <TextBlock x:Name="MathResultSubText" Text="Calculation Result (Click to Copy)" Foreground="#AAFFFFFF" FontSize="13"/>
                 </StackPanel>
 
                 <FontIcon Grid.Column="2" Glyph="&#xE00F;" FontSize="14" Foreground="#66FFFFFF" Margin="12,0,8,0"/>

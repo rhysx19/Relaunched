@@ -1,9 +1,14 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Threading.Tasks;
+using ClassicLaunchpad.Core;
 
-namespace ClassicLaunchpad.Core
+namespace ClassicLaunchpad.Tests
 {
+    /// <summary>
+    /// Test double for IAppScanner. Lives in the test project's own namespace;
+    /// it must not masquerade as a ClassicLaunchpad.Core type.
+    /// </summary>
     public class MockAppScanner : IAppScanner
     {
         private readonly string _mockPath;

@@ -464,10 +464,63 @@ namespace ClassicLaunchpad.Tests
             vm.Show();
             Assert.True(vm.IsVisible);
 
+            // Typing a keyword only ARMS the action; nothing executes and the
+            // launchpad stays visible until the user explicitly presses Enter.
             vm.UpdateSearch("sleep");
             Assert.Equal(SystemActionType.Sleep, vm.PendingSystemAction);
+            Assert.Equal(SystemActionType.None, vm.ExecutedSystemAction);
+            Assert.True(vm.IsVisible);
+
+            vm.PressEnter();
             Assert.Equal(SystemActionType.Sleep, vm.ExecutedSystemAction);
             Assert.False(vm.IsVisible);
+
+            // The UI consumes the result exactly once.
+            vm.ClearActionResults();
+            Assert.Equal(SystemActionType.None, vm.ExecutedSystemAction);
+        }
+
+        // Test 17b: Escape cancels an armed system action instead of executing it
+        [Fact]
+        public async Task Test_EscapeCancelsArmedSystemAction()
+        {
+            var apps = CreatePresetApps(5);
+            var vm = new LaunchpadViewModel(new MockAppScanner(apps), new InMemorySettingsStore(), new SearchEngine());
+            await vm.InitializeAsync();
+
+            vm.Show();
+            vm.UpdateSearch("shutdown");
+            Assert.Equal(SystemActionType.Shutdown, vm.PendingSystemAction);
+
+            // Escape clears the search and disarms the action; nothing executes.
+            vm.PressEscape();
+            Assert.Equal(SystemActionType.None, vm.PendingSystemAction);
+            Assert.Equal(SystemActionType.None, vm.ExecutedSystemAction);
+            Assert.True(vm.IsVisible);
+
+            // A later Enter press must not fire the stale action either.
+            vm.PressEnter();
+            Assert.Equal(SystemActionType.None, vm.ExecutedSystemAction);
+        }
+
+        // Test 17c: Typing over an armed action disarms it
+        [Fact]
+        public async Task Test_TypingOverArmedActionDisarmsIt()
+        {
+            var apps = CreatePresetApps(5);
+            var vm = new LaunchpadViewModel(new MockAppScanner(apps), new InMemorySettingsStore(), new SearchEngine());
+            await vm.InitializeAsync();
+
+            vm.Show();
+            vm.UpdateSearch("lock");
+            Assert.Equal(SystemActionType.Lock, vm.PendingSystemAction);
+
+            vm.UpdateSearch("App 1");
+            Assert.Equal(SystemActionType.None, vm.PendingSystemAction);
+
+            vm.PressEnter();
+            Assert.Equal(SystemActionType.None, vm.ExecutedSystemAction);
+            Assert.NotNull(vm.LaunchedApp);
         }
 
         // Test 18: TaskbarHidingToggle

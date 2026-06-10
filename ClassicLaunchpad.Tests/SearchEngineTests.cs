@@ -220,32 +220,87 @@ namespace ClassicLaunchpad.Tests
         }
 
         [Fact]
-        public void TestSearchEngine_DeeplyNestedParentheses_StackOverflowRisk()
+        public void TestSearchEngine_DeeplyNestedParentheses_WithinLimitEvaluates()
         {
             ISearchEngine engine = new SearchEngine();
-            // Test with a moderately nested expression to see if recursion handles it without crashing
-            string input = new string('(', 100) + "1" + new string(')', 100);
+            // Nesting up to the documented cap (64) must evaluate without crashing.
+            string input = new string('(', 50) + "1" + new string(')', 50);
             var result = engine.Query(input, new List<AppItem>());
             Assert.True(result.IsMathExpression);
             Assert.Equal("1", result.MathResult);
         }
 
         [Fact]
-        public void TestSearchEngine_ParenthesesDepth300_CausesStackOverflowOrHandles()
+        public void TestSearchEngine_ParenthesesDepthExceedingLimit_DoesNotEvaluateAsMath()
         {
             ISearchEngine engine = new SearchEngine();
-            string input = new string('(', 300) + "1" + new string(')', 300);
+            // Depth is capped at 64 to keep the recursive evaluator far away from
+            // stack limits; anything deeper falls back to a normal app search.
+            string input = new string('(', 65) + "1" + new string(')', 65);
             var result = engine.Query(input, new List<AppItem>());
-            Assert.True(result.IsMathExpression);
-            Assert.Equal("1", result.MathResult);
+            Assert.False(result.IsMathExpression);
+        }
+
+        // --- Consolidated from the former SearchTests.cs ---
+
+        [Fact]
+        public void TestSearchEngine_EmptyOrWhitespaceInput_ReturnsAllApps()
+        {
+            ISearchEngine engine = new SearchEngine();
+            var pool = new List<AppItem>
+            {
+                new AppItem { Id = "safari", Name = "Safari" },
+                new AppItem { Id = "terminal", Name = "Terminal" }
+            };
+
+            var result1 = engine.Query(null!, pool);
+            var result2 = engine.Query("   ", pool);
+
+            Assert.False(result1.IsSystemAction);
+            Assert.False(result1.IsMathExpression);
+            Assert.Equal(pool.Count, result1.FilteredApps.Count);
+            Assert.Equal(pool.Count, result2.FilteredApps.Count);
         }
 
         [Fact]
-        public void TestSearchEngine_ParenthesesDepthExceeding500_DoesNotEvaluateAsMath()
+        public void TestSearchEngine_NormalSearch_FiltersCaseInsensitively()
         {
             ISearchEngine engine = new SearchEngine();
-            string input = new string('(', 501) + "1" + new string(')', 501);
-            var result = engine.Query(input, new List<AppItem>());
+            var pool = new List<AppItem>
+            {
+                new AppItem { Id = "safari", Name = "Safari" },
+                new AppItem { Id = "app_store", Name = "App Store" },
+                new AppItem { Id = "calculator", Name = "Calculator" },
+                new AppItem { Id = "terminal", Name = "Terminal" }
+            };
+
+            var result1 = engine.Query("ar", pool);
+            Assert.Single(result1.FilteredApps);
+            Assert.Equal("safari", result1.FilteredApps[0].Id);
+
+            var result2 = engine.Query("STORE", pool);
+            Assert.Single(result2.FilteredApps);
+            Assert.Equal("app_store", result2.FilteredApps[0].Id);
+
+            var result3 = engine.Query("XYZ", pool);
+            Assert.Empty(result3.FilteredApps);
+        }
+
+        [Theory]
+        [InlineData("lock", SystemActionType.Lock)]
+        [InlineData("Sleep", SystemActionType.Sleep)]
+        [InlineData("restart", SystemActionType.Restart)]
+        [InlineData("Shutdown", SystemActionType.Shutdown)]
+        public void TestSearchEngine_SystemActionKeywords_IdentifiedCorrectly(string input, SystemActionType expectedAction)
+        {
+            ISearchEngine engine = new SearchEngine();
+            var pool = new List<AppItem> { new AppItem { Id = "safari", Name = "Safari" } };
+
+            var result = engine.Query(input, pool);
+
+            Assert.True(result.IsSystemAction);
+            Assert.Equal(expectedAction, result.SystemAction);
+            Assert.Empty(result.FilteredApps);
             Assert.False(result.IsMathExpression);
         }
     }

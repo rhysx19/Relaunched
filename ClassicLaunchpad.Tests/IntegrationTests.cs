@@ -361,10 +361,17 @@ namespace ClassicLaunchpad.Tests
             vm.MoveFocusRight();
             Assert.Equal(1, vm.SelectedItemIndex);
 
-            // Type "Lock" system action keyword
+            // Type "Lock" system action keyword: the action is armed, not executed
             vm.UpdateSearch("Lock");
+            Assert.Equal(SystemActionType.Lock, vm.PendingSystemAction);
+            Assert.Equal(SystemActionType.None, vm.ExecutedSystemAction);
+            Assert.True(vm.IsVisible);
+
+            // Explicit Enter executes it
+            vm.PressEnter();
             Assert.Equal(SystemActionType.Lock, vm.ExecutedSystemAction);
             Assert.False(vm.IsVisible);
+            vm.ClearActionResults();
 
             // Toggle launcher back
             vm.Show();
@@ -450,6 +457,36 @@ namespace ClassicLaunchpad.Tests
             Assert.Equal("app_3", vm2.AllItems[2].Id);
 
             // Clean up
+            if (File.Exists(tempSettingsFile))
+            {
+                File.Delete(tempSettingsFile);
+            }
+        }
+
+        [Fact]
+        public async Task Test_FolderNamePersistsAcrossSessions()
+        {
+            var tempSettingsFile = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".json");
+            var store = new MockSettingsStore(tempSettingsFile);
+            var apps = CreatePresetApps(3);
+
+            var vm1 = new LaunchpadViewModel(new MockAppScanner(apps), store, new SearchEngine());
+            await vm1.InitializeAsync();
+
+            // Group two apps, rename the folder, persist
+            vm1.CreateFolder(vm1.AllItems[0], vm1.AllItems[1]);
+            var folder = vm1.AllItems.First(x => x.IsFolder);
+            vm1.OpenFolderOverlay(folder);
+            vm1.RenameFolder("Productivity");
+            await vm1.SaveLayoutAsync();
+
+            // A fresh session must restore the display name, not the folder id
+            var vm2 = new LaunchpadViewModel(new MockAppScanner(apps), store, new SearchEngine());
+            await vm2.InitializeAsync();
+            var restored = vm2.AllItems.First(x => x.IsFolder);
+            Assert.Equal(folder.Id, restored.Id);
+            Assert.Equal("Productivity", restored.Name);
+
             if (File.Exists(tempSettingsFile))
             {
                 File.Delete(tempSettingsFile);

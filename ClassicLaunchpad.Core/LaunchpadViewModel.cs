@@ -77,10 +77,18 @@ namespace ClassicLaunchpad.Core
             {
                 foreach (var kvp in config.Folders)
                 {
+                    string displayName = kvp.Key;
+                    if (config.FolderNames != null &&
+                        config.FolderNames.TryGetValue(kvp.Key, out var savedName) &&
+                        !string.IsNullOrWhiteSpace(savedName))
+                    {
+                        displayName = savedName;
+                    }
+
                     var folder = new AppItem
                     {
                         Id = kvp.Key,
-                        Name = kvp.Key,
+                        Name = displayName,
                         IsFolder = true,
                         FolderItems = new List<AppItem>()
                     };
@@ -163,7 +171,10 @@ namespace ClassicLaunchpad.Core
                 PageOrder = AllItems.Select(x => x.Id).ToList(),
                 Folders = AllItems
                     .Where(x => x.IsFolder)
-                    .ToDictionary(x => x.Id, x => x.FolderItems.Select(y => y.Id).ToList())
+                    .ToDictionary(x => x.Id, x => x.FolderItems.Select(y => y.Id).ToList()),
+                FolderNames = AllItems
+                    .Where(x => x.IsFolder)
+                    .ToDictionary(x => x.Id, x => x.Name)
             };
             try
             {
@@ -281,6 +292,12 @@ namespace ClassicLaunchpad.Core
                 return;
             }
 
+            if (PendingSystemAction != SystemActionType.None)
+            {
+                ExecuteSystemAction(PendingSystemAction);
+                return;
+            }
+
             var itemsOnPage = GetItemsOnPage(CurrentPageIndex);
             if (SelectedItemIndex < 0 || SelectedItemIndex >= itemsOnPage.Count) return;
 
@@ -314,12 +331,23 @@ namespace ClassicLaunchpad.Core
         public void UpdateSearch(string text)
         {
             SearchText = text;
+
+            // Re-evaluate the pending action on every keystroke so a stale action
+            // can never be executed by a later Enter press.
+            PendingSystemAction = SystemActionType.None;
+
             var searchResult = _searchEngine.Query(text, AllItems.Where(x => !x.IsFolder).ToList());
 
             if (searchResult.IsSystemAction)
             {
+                // Arm the action only; it is executed exclusively by an explicit
+                // Enter press (PressEnter), never as a side effect of typing.
                 PendingSystemAction = searchResult.SystemAction;
-                ExecuteSystemAction(searchResult.SystemAction);
+                IsMathVisible = false;
+                MathResult = string.Empty;
+                DisplayedItems = new List<AppItem>();
+                CurrentPageIndex = 0;
+                SelectedItemIndex = 0;
                 return;
             }
 
@@ -442,6 +470,17 @@ namespace ClassicLaunchpad.Core
         {
             ExecutedSystemAction = action;
             Hide();
+        }
+
+        /// <summary>
+        /// Clears one-shot action results (launched app / executed system action)
+        /// after the UI has handled them, so they cannot fire again on a later
+        /// Enter or Escape press.
+        /// </summary>
+        public void ClearActionResults()
+        {
+            LaunchedApp = null;
+            ExecutedSystemAction = SystemActionType.None;
         }
     }
 }

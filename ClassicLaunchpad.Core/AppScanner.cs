@@ -4,12 +4,16 @@ using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace ClassicLaunchpad.Core
 {
     public class AppScanner : IAppScanner
     {
+        private const int SLR_NO_UI = 0x0001;
+        private const int SLGP_UNCPRIORITY = 0x0002;
+
         private readonly string? _simulatedPath;
 
         public AppScanner(string? simulatedPath = null)
@@ -18,6 +22,32 @@ namespace ClassicLaunchpad.Core
         }
 
         public Task<List<AppItem>> ScanApplicationsAsync()
+        {
+            // The scan performs blocking disk I/O and COM interop, so it must not
+            // run on the caller's (UI) thread. Shell COM objects are apartment
+            // threaded, so on Windows the work runs on a dedicated STA thread.
+            var tcs = new TaskCompletionSource<List<AppItem>>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var thread = new Thread(() =>
+            {
+                try
+                {
+                    tcs.SetResult(ScanApplications());
+                }
+                catch (Exception ex)
+                {
+                    tcs.SetException(ex);
+                }
+            });
+            thread.IsBackground = true;
+            if (OperatingSystem.IsWindows())
+            {
+                thread.SetApartmentState(ApartmentState.STA);
+            }
+            thread.Start();
+            return tcs.Task;
+        }
+
+        private List<AppItem> ScanApplications()
         {
             var allApps = new List<AppItem>();
             bool useSimulated = !RuntimeInformation.IsOSPlatform(OSPlatform.Windows) || !string.IsNullOrEmpty(_simulatedPath);
@@ -72,6 +102,7 @@ namespace ClassicLaunchpad.Core
                 }
                 catch { }
 
+                var iconCacheDir = GetIconCacheDir();
                 foreach (var path in paths)
                 {
                     try
@@ -80,13 +111,22 @@ namespace ClassicLaunchpad.Core
                         foreach (var file in files)
                         {
                             var name = Path.GetFileNameWithoutExtension(file);
-                            var (targetPath, iconPath) = ResolveLnk(file);
+                            var id = name.ToLowerInvariant().Replace(" ", "_");
+                            var (targetPath, iconFile, iconIndex) = ResolveLnk(file);
+
+                            // Advertised/MSI shortcuts can report an empty target;
+                            // launching the .lnk itself via the shell still works.
+                            if (string.IsNullOrWhiteSpace(targetPath))
+                            {
+                                targetPath = file;
+                            }
+
                             allApps.Add(new AppItem
                             {
-                                Id = name.ToLowerInvariant().Replace(" ", "_"),
+                                Id = id,
                                 Name = name,
                                 TargetPath = targetPath,
-                                IconPath = iconPath,
+                                IconPath = ExtractIconToCache(iconFile, iconIndex, targetPath, iconCacheDir, id),
                                 IsFolder = false
                             });
                         }
@@ -117,7 +157,7 @@ namespace ClassicLaunchpad.Core
             }
 
             var sortedList = finalList.OrderBy(a => a.Name, StringComparer.OrdinalIgnoreCase).ToList();
-            return Task.FromResult(sortedList);
+            return sortedList;
         }
 
         private bool IsFiltered(string name)
@@ -128,11 +168,11 @@ namespace ClassicLaunchpad.Core
             return false;
         }
 
-        private (string TargetPath, string IconPath) ResolveLnk(string lnkPath)
+        private (string TargetPath, string IconFile, int IconIndex) ResolveLnk(string lnkPath)
         {
             if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
             {
-                return (lnkPath, lnkPath + ".png");
+                return (lnkPath, string.Empty, 0);
             }
 
             try
@@ -141,27 +181,135 @@ namespace ClassicLaunchpad.Core
                 var persistFile = (IPersistFile)link;
                 persistFile.Load(lnkPath, 0); // STGM_READ is 0
 
-                var target = new StringBuilder(260);
-                var findData = new WIN32_FIND_DATAW();
-                link.GetPath(target, target.Capacity, out findData, 2); // SLGP_UNCPRIORITY is 2
+                try
+                {
+                    // Resolve moved/renamed targets. SLR_NO_UI with a 100ms
+                    // timeout in the high word keeps this silent and fast.
+                    link.Resolve(IntPtr.Zero, SLR_NO_UI | (100 << 16));
+                }
+                catch
+                {
+                    // A dead link still carries its stored path data; fall through.
+                }
 
-                var iconPathSb = new StringBuilder(260);
+                var target = new StringBuilder(1024);
+                link.GetPath(target, target.Capacity, out _, SLGP_UNCPRIORITY);
+
+                var iconPathSb = new StringBuilder(1024);
                 link.GetIconLocation(iconPathSb, iconPathSb.Capacity, out int iconIndex);
 
                 string targetStr = target.ToString();
-                string iconStr = iconPathSb.ToString();
+                // Icon locations frequently use environment variables, e.g.
+                // "%SystemRoot%\system32\shell32.dll".
+                string iconStr = Environment.ExpandEnvironmentVariables(iconPathSb.ToString());
 
                 if (string.IsNullOrWhiteSpace(iconStr))
                 {
                     iconStr = targetStr;
+                    iconIndex = 0;
                 }
 
-                return (targetStr, iconStr);
+                return (targetStr, iconStr, iconIndex);
             }
             catch
             {
-                return (lnkPath, lnkPath + ".png");
+                return (lnkPath, string.Empty, 0);
             }
+        }
+
+        private static string GetIconCacheDir()
+        {
+            var dir = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "ClassicLaunchpad", "IconCache");
+            try
+            {
+                Directory.CreateDirectory(dir);
+            }
+            catch
+            {
+                // Extraction will simply fail and apps fall back to placeholders.
+            }
+            return dir;
+        }
+
+        /// <summary>
+        /// Extracts the app icon to a cached PNG file and returns its path, so the
+        /// UI can load it with a plain image decoder. Returns an empty string when
+        /// no icon could be extracted (the UI renders a placeholder).
+        /// </summary>
+        private static string ExtractIconToCache(string iconFile, int iconIndex, string targetPath, string cacheDir, string appId)
+        {
+            if (!OperatingSystem.IsWindows())
+            {
+                return string.Empty;
+            }
+
+            try
+            {
+                return ExtractIconToCacheWindows(iconFile, iconIndex, targetPath, cacheDir, appId);
+            }
+            catch
+            {
+                return string.Empty;
+            }
+        }
+
+        [System.Runtime.Versioning.SupportedOSPlatform("windows")]
+        private static string ExtractIconToCacheWindows(string iconFile, int iconIndex, string targetPath, string cacheDir, string appId)
+        {
+            foreach (var invalid in Path.GetInvalidFileNameChars())
+            {
+                appId = appId.Replace(invalid, '_');
+            }
+
+            var pngPath = Path.Combine(cacheDir, appId + ".png");
+            if (File.Exists(pngPath))
+            {
+                return pngPath;
+            }
+
+            System.Drawing.Icon? icon = null;
+            try
+            {
+                if (!string.IsNullOrWhiteSpace(iconFile) && File.Exists(iconFile))
+                {
+                    // Honors the icon index stored in the shortcut (a negative
+                    // value is a resource id, matching GetIconLocation semantics).
+                    icon = System.Drawing.Icon.ExtractIcon(iconFile, iconIndex, 256);
+                }
+            }
+            catch
+            {
+                // Fall through to the associated-icon fallback below.
+            }
+
+            if (icon == null)
+            {
+                try
+                {
+                    if (!string.IsNullOrWhiteSpace(targetPath) && File.Exists(targetPath))
+                    {
+                        icon = System.Drawing.Icon.ExtractAssociatedIcon(targetPath);
+                    }
+                }
+                catch
+                {
+                    // No icon available; the UI shows a placeholder.
+                }
+            }
+
+            if (icon == null)
+            {
+                return string.Empty;
+            }
+
+            using (icon)
+            using (var bitmap = icon.ToBitmap())
+            {
+                bitmap.Save(pngPath, System.Drawing.Imaging.ImageFormat.Png);
+            }
+            return pngPath;
         }
 
         [ComImport]

@@ -61,7 +61,9 @@ namespace ClassicLaunchpad.Core
                         break;
                     }
                 }
-                if (balance != 0 || maxDepth > 500)
+                // The expression evaluator is recursive; cap nesting depth well
+                // below any thread stack limit (500 deep risked stack overflow).
+                if (balance != 0 || maxDepth > 64)
                 {
                     ok = false;
                 }

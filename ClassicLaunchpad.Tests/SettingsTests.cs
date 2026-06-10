@@ -329,5 +329,33 @@ namespace ClassicLaunchpad.Tests
             Assert.Contains("app_c", loaded.Folders["folder_x"]);
             Assert.Contains("app_d", loaded.Folders["folder_x"]);
         }
+
+        // Consolidated from the former SettingsStoreTests.cs
+        [Fact]
+        public async Task SettingsStore_SaveLayout_ThrowsOnWriteFailure()
+        {
+            // Arrange: the store's file path is an existing directory, so the
+            // final write/rename must fail and the error must propagate.
+            var tempDir = Path.Combine(Path.GetTempPath(), "SettingsStoreDir_" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(tempDir);
+            try
+            {
+                var store = new ClassicLaunchpad.Core.SettingsStore(tempDir);
+                var config = new ClassicLaunchpad.Core.LayoutConfig { Columns = 5 };
+
+                // Act & Assert
+                await Assert.ThrowsAnyAsync<Exception>(() => store.SaveLayoutAsync(config));
+
+                // The atomic-write temp file must not be left behind on failure.
+                Assert.False(File.Exists(tempDir + ".tmp"));
+            }
+            finally
+            {
+                if (Directory.Exists(tempDir))
+                {
+                    Directory.Delete(tempDir, true);
+                }
+            }
+        }
     }
 }

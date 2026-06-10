@@ -19,7 +19,7 @@ A lightweight, native, and highly customizable application launcher overlay for 
 
 - 🚀 **Global Toggle & Keyboard Navigation**:
   - **macOS**: Global hotkey `Option + Space` (configurable).
-  - **Windows**: Global hotkey `Alt + Space` (registered via Win32 subclasses).
+  - **Windows**: Global hotkey `Ctrl + Alt + Space` (registered via Win32 subclasses; plain `Alt + Space` is reserved by Windows for the system window menu).
   - Full keyboard controls: navigate cells using arrow keys (with selection halos), change pages using `Page Up / Down`, and press `Enter` to open apps/folders.
 - 📱 **Premium Glassmorphic Folders & Drag-to-Remove**:
   - Drag apps onto each other to group them into folders with mini-grid previews.
@@ -48,7 +48,7 @@ A lightweight, native, and highly customizable application launcher overlay for 
 - **`ClassicLaunchpad.sln`**: The central .NET solution for Windows.
   - **`ClassicLaunchpad`**: WinUI 3 Desktop Application handling presentation, Acrylic backdrop blurs, and global hooks.
   - **`ClassicLaunchpad.Core`**: Shared C# library managing layout state machines, COM shortcut scanners, search engines, system commands, and local settings stores.
-  - **`ClassicLaunchpad.Tests`**: xUnit tests containing 96 headless E2E verification test cases.
+  - **`ClassicLaunchpad.Tests`**: xUnit tests containing 90 headless E2E verification test cases.
 - **macOS SwiftUI Source**:
   - **`main.swift`**: Bootstrapper handling AppKit window states, Dock promotions, and global hooks.
   - **`AppScanner.swift`**: Scans application directories and resolves bundle icon assets.
@@ -116,7 +116,7 @@ xattr -cr /path/to/Launchpad\ Classic.app
 
 | Action | macOS Shortcut | Windows Shortcut |
 | :--- | :--- | :--- |
-| **Toggle Launcher** | `Option + Space` (configurable) | `Alt + Space` (global hook) |
+| **Toggle Launcher** | `Option + Space` (configurable) | `Ctrl + Alt + Space` (global hook) |
 | **Selection Highlight** | `Arrow Keys` | `Arrow Keys` |
 | **Paging** | `Page Up / Down` | `Page Up / Down` |
 | **Select / Launch** | `Enter` | `Enter` |

@@ -29,7 +29,20 @@ namespace ClassicLaunchpad.Core
 
             var options = new JsonSerializerOptions { WriteIndented = true };
             var json = JsonSerializer.Serialize(config, options);
-            await File.WriteAllTextAsync(FilePath, json);
+
+            // Write to a temp file then rename so a crash mid-write can never
+            // leave a truncated/corrupt layout.json behind.
+            var tempPath = FilePath + ".tmp";
+            await File.WriteAllTextAsync(tempPath, json);
+            try
+            {
+                File.Move(tempPath, FilePath, overwrite: true);
+            }
+            catch
+            {
+                try { File.Delete(tempPath); } catch { /* best effort */ }
+                throw;
+            }
         }
 
         public async Task<LayoutConfig> LoadLayoutAsync()
@@ -44,8 +57,11 @@ namespace ClassicLaunchpad.Core
                 var json = await File.ReadAllTextAsync(FilePath);
                 return JsonSerializer.Deserialize<LayoutConfig>(json) ?? new LayoutConfig();
             }
-            catch (Exception)
+            catch (Exception ex)
             {
+                // Fall back to defaults, but leave a trace instead of silently
+                // wiping the user's layout.
+                System.Diagnostics.Debug.WriteLine($"ClassicLaunchpad: failed to load layout from '{FilePath}': {ex.Message}");
                 return new LayoutConfig();
             }
         }

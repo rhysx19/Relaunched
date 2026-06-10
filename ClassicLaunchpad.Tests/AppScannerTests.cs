@@ -136,5 +136,68 @@ namespace ClassicLaunchpad.Tests
             Assert.Single(result);
             Assert.Equal("DuplicateApp", result[0].Name);
         }
+
+        // --- Consolidated from the former ScannerTests.cs (now run against the
+        // real AppScanner in simulated mode instead of the mock) ---
+
+        [Fact]
+        public async Task TestAppScanner_NonExistentDirectory_ReturnsEmptyList()
+        {
+            var nonExistentPath = Path.Combine(Path.GetTempPath(), "NonExistent_" + Guid.NewGuid().ToString("N"));
+            var scanner = new AppScanner(nonExistentPath);
+
+            var result = await scanner.ScanApplicationsAsync();
+
+            Assert.NotNull(result);
+            Assert.Empty(result);
+        }
+
+        [Fact]
+        public async Task TestAppScanner_EmptyDirectory_ReturnsEmptyList()
+        {
+            var tempDir = CreateTempDirectory();
+            var scanner = new AppScanner(tempDir);
+
+            var result = await scanner.ScanApplicationsAsync();
+
+            Assert.NotNull(result);
+            Assert.Empty(result);
+        }
+
+        [Fact]
+        public async Task TestAppScanner_SimulatedScan_MapsIdNameAndPaths()
+        {
+            var tempDir = CreateTempDirectory();
+            var lnkFile = Path.Combine(tempDir, "Visual Studio Code.lnk");
+            await File.WriteAllTextAsync(lnkFile, "dummy shortcut content");
+
+            var scanner = new AppScanner(tempDir);
+            var result = await scanner.ScanApplicationsAsync();
+
+            var vsCode = Assert.Single(result);
+            Assert.Equal("Visual Studio Code", vsCode.Name);
+            Assert.Equal("visual_studio_code", vsCode.Id);
+            Assert.Equal(lnkFile, vsCode.TargetPath);
+            Assert.Equal(lnkFile + ".png", vsCode.IconPath);
+            Assert.False(vsCode.IsFolder);
+        }
+
+        [Fact]
+        public async Task TestAppScanner_LnkFilesInSubdirectories_AreAllFound()
+        {
+            var tempDir = CreateTempDirectory();
+            var subDir = Path.Combine(tempDir, "SubFolder");
+            Directory.CreateDirectory(subDir);
+
+            await File.WriteAllTextAsync(Path.Combine(tempDir, "RootApp.lnk"), "dummy shortcut content");
+            await File.WriteAllTextAsync(Path.Combine(subDir, "SubApp.lnk"), "dummy shortcut content");
+
+            var scanner = new AppScanner(tempDir);
+            var result = await scanner.ScanApplicationsAsync();
+
+            Assert.Equal(2, result.Count);
+            Assert.Contains(result, a => a.Name == "RootApp" && a.Id == "rootapp");
+            Assert.Contains(result, a => a.Name == "SubApp" && a.Id == "subapp");
+        }
     }
 }
