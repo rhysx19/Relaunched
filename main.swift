@@ -209,6 +209,18 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             return event
         }
         
+        // Trackpad pinch gestures: thumb + three fingers pinched together opens,
+        // spread apart closes — same as classic macOS Launchpad.
+        TrackpadGestureManager.shared.onPinchIn = { [weak self] in
+            guard let self = self, !self.window.isVisible else { return }
+            self.showLaunchpad()
+        }
+        TrackpadGestureManager.shared.onSpreadOut = { [weak self] in
+            guard let self = self, self.window.isVisible else { return }
+            // Route through the view so the zoom-out animation plays first.
+            NotificationCenter.default.post(name: NSNotification.Name("LaunchpadDismissRequested"), object: nil)
+        }
+        
         // Apply settings (daemon status item, global hotkey, activation policy)
         applySettings()
         
@@ -220,6 +232,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let persistentMode = UserDefaults.standard.object(forKey: "LaunchpadPersistentMode") as? Bool ?? true
         let showDockIcon = UserDefaults.standard.object(forKey: "LaunchpadShowDockIcon") as? Bool ?? true
         let showMenuBarIcon = UserDefaults.standard.object(forKey: "LaunchpadShowMenuBarIcon") as? Bool ?? true
+        let pinchGestures = UserDefaults.standard.object(forKey: "LaunchpadPinchGestures") as? Bool ?? true
         
         DispatchQueue.main.async { [weak self] in
             guard let self = self else { return }
@@ -256,6 +269,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                     NSStatusBar.system.removeStatusItem(item)
                     self.statusItem = nil
                 }
+            }
+            
+            // 4. Trackpad pinch gestures (only useful while resident in background)
+            if persistentMode && pinchGestures && TrackpadGestureManager.isSupported {
+                TrackpadGestureManager.shared.start()
+            } else {
+                TrackpadGestureManager.shared.stop()
             }
         }
     }

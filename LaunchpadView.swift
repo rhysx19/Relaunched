@@ -27,6 +27,7 @@ struct LaunchpadView: View {
     @AppStorage("LaunchpadShowDockIcon") private var showDockIcon: Bool = true
     @AppStorage("LaunchpadShowMenuBarIcon") private var showMenuBarIcon: Bool = true
     @AppStorage("LaunchpadLaunchAtLogin") private var launchAtLogin: Bool = false
+    @AppStorage("LaunchpadPinchGestures") private var pinchGestures: Bool = true
     
     @Namespace private var searchNamespace
     
@@ -447,6 +448,7 @@ struct LaunchpadView: View {
                         showDockIcon: $showDockIcon,
                         showMenuBarIcon: $showMenuBarIcon,
                         launchAtLogin: $launchAtLogin,
+                        pinchGestures: $pinchGestures,
                         selectedTab: $selectedSettingsTab,
                         onAutoCategorize: autoCategorizeAction,
                         onResetAll: resetLayoutAction,
@@ -612,6 +614,9 @@ struct LaunchpadView: View {
                 NotificationCenter.default.post(name: NSNotification.Name("LaunchpadSettingsChanged"), object: nil)
             }
             .onChange(of: showMenuBarIcon) { _, newVal in
+                NotificationCenter.default.post(name: NSNotification.Name("LaunchpadSettingsChanged"), object: nil)
+            }
+            .onChange(of: pinchGestures) { _, _ in
                 NotificationCenter.default.post(name: NSNotification.Name("LaunchpadSettingsChanged"), object: nil)
             }
             .onChange(of: columnsCount) { _, _ in
@@ -2430,6 +2435,7 @@ struct SettingsCardOverlayView: View {
     @Binding var showDockIcon: Bool
     @Binding var showMenuBarIcon: Bool
     @Binding var launchAtLogin: Bool
+    @Binding var pinchGestures: Bool
     @Binding var selectedTab: Int
     
     let onAutoCategorize: () -> Void
@@ -2581,6 +2587,20 @@ struct SettingsCardOverlayView: View {
                         
                         HotkeyRecorderRow()
                         
+                        Toggle("Trackpad Pinch to Open & Close", isOn: $pinchGestures)
+                            .toggleStyle(.switch)
+                            .foregroundColor(.white.opacity(0.85))
+                            .font(.system(size: 13, weight: .medium))
+                            .help("Pinch in with thumb and three fingers to open Launchpad; spread them apart to close — just like classic macOS.")
+                            .disabled(!TrackpadGestureManager.isSupported)
+                        
+                        if !TrackpadGestureManager.isSupported {
+                            Text("No multitouch trackpad detected")
+                                .font(.system(size: 11))
+                                .foregroundColor(.white.opacity(0.45))
+                                .padding(.leading, 2)
+                        }
+                        
                         Divider()
                             .background(Color.white.opacity(0.12))
                         
@@ -2614,7 +2634,7 @@ struct SettingsCardOverlayView: View {
                     .transition(.opacity)
                 }
             }
-            .frame(height: 268) // Fixed height for content to prevent card resizing
+            .frame(height: 300) // Fixed height for content to prevent card resizing
             
             Divider()
                 .background(Color.white.opacity(0.12))

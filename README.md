@@ -21,6 +21,7 @@ A lightweight, native, and highly customizable application launcher overlay for 
   - **macOS**: Global hotkey `Option + Space` (configurable).
   - **Windows**: Global hotkey `Ctrl + Alt + Space` (registered via Win32 subclasses; plain `Alt + Space` is reserved by Windows for the system window menu).
   - Full keyboard controls: navigate cells using arrow keys (with selection halos), change pages using `Page Up / Down`, and press `Enter` to open apps/folders.
+- 🤏 **Trackpad Pinch Gestures** (macOS): pinch in with thumb + three fingers anywhere to open Launchpad, spread them apart to close — exactly like classic macOS. Reads raw trackpad touches (no Accessibility permission needed), so it never misfires on regular two-finger zooming. Toggleable in Settings.
 - 🧠 **Smart Search & Suggestions** (macOS):
   - Fuzzy matching with initials support — type `vsc` to find Visual Studio Code.
   - Results ranked by how often and how recently you launch each app.
@@ -43,7 +44,7 @@ A lightweight, native, and highly customizable application launcher overlay for 
   - **System Control**: Execute commands like `Lock`, `Sleep`, `Restart`, or `Shutdown` directly from the search bar.
 - ⚙️ **Integrated Settings**:
   - Modify rows, columns, icon sizes, background dim, and icon-label visibility instantly with changes updating in real-time.
-  - Control Launch at Login, daemon status bar controls, taskbar/dock presence, the global hotkey, and check for updates in-app (macOS).
+  - Control Launch at Login, daemon status bar controls, taskbar/dock presence, the global hotkey, trackpad pinch gestures, and check for updates in-app (macOS).
 - 🔒 **Dock & Taskbar Hiding**:
   - Hides the macOS Dock/MenuBar or Windows Taskbar (on all active screens) during visibility to prevent mouse hover conflicts.
   - Employs fail-safe process hooks to restore system bars on focus loss or app crashes.
@@ -131,6 +132,7 @@ xattr -cr /path/to/Launchpad\ Classic.app
 | Action | macOS Shortcut | Windows Shortcut |
 | :--- | :--- | :--- |
 | **Toggle Launcher** | `Option + Space` (configurable) | `Ctrl + Alt + Space` (global hook) |
+| **Pinch Open / Close** | Thumb + 3 finger pinch / spread (trackpad) | — |
 | **Selection Highlight** | `Arrow Keys` | `Arrow Keys` |
 | **Paging** | `Page Up / Down` | `Page Up / Down` |
 | **Select / Launch** | `Enter` | `Enter` |

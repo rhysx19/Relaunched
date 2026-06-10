@@ -26,6 +26,7 @@ swiftc -O \
     -sdk "$SDK_PATH" \
     AppScanner.swift \
     VisualEffectView.swift \
+    TrackpadGestures.swift \
     LaunchpadView.swift \
     main.swift \
     -o "$MACOS_DIR/Launchpad"
