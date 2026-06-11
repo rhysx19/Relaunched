@@ -283,7 +283,17 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     func setupStatusItem() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let button = statusItem?.button {
-            button.image = NSImage(systemSymbolName: "rocket", accessibilityDescription: "Relaunched")
+            // SF Symbol availability varies by macOS release ("rocket" doesn't
+            // exist on macOS 26, leaving an invisible zero-width item), so walk
+            // a fallback chain and never leave the button empty.
+            let candidates = ["square.grid.3x3.fill", "circle.grid.3x3.fill", "square.grid.3x3"]
+            if let image = candidates.lazy
+                .compactMap({ NSImage(systemSymbolName: $0, accessibilityDescription: "Relaunched") })
+                .first {
+                button.image = image
+            } else {
+                button.title = "▦"
+            }
             button.target = self
             button.action = #selector(statusItemClicked)
             button.sendAction(on: [.leftMouseUp, .rightMouseUp])
